@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Omni-Pix Studio</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        space: {
+                            900: '#050b14', // Deepest background
+                            800: '#0f172a', // Panels
+                            700: '#1e293b', // Borders
+                        },
+                        tech: {
+                            400: '#22d3ee', // Cyan accent
+                            500: '#06b6d4',
+                            glow: 'rgba(34, 211, 238, 0.5)'
+                        }
+                    },
+                    animation: {
+                        'surge': 'surge 8s linear infinite',
+                        'twinkle': 'twinkle 4s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        surge: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(100%)' },
+                        },
+                        twinkle: {
+                            '0%, 100%': { opacity: 0.3 },
+                            '50%': { opacity: 1 },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { 
+            overscroll-behavior-y: none; 
+            user-select: none; 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #050b14;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #22d3ee; }
+        .range-sm::-webkit-slider-thumb { width: 12px; height: 12px; background: #22d3ee; }
+        
+        /* Glass Panels - 80% Opacity */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.8); 
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(34, 211, 238, 0.15);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Hide Scrollbar Utility */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        .modal-enter { opacity: 0; transform: scale(0.95); }
+        .modal-enter-active { opacity: 1; transform: scale(1); transition: opacity 200ms, transform 200ms; }
+    </style>
+</head>
+<body class="text-slate-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- Space Background Component ---
+        const SpaceBackground = () => {
+            const canvasRef = useRef(null);
+            
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+                let width, height, stars = [];
+                
+                const resize = () => {
+                    width = canvas.width = window.innerWidth;
+                    height = canvas.height = window.innerHeight;
+                    initStars();
+                };
+                
+                const initStars = () => {
+                    stars = [];
+                    const count = Math.floor((width * height) / 8000); 
+                    for(let i=0; i<count; i++) {
+                        stars.push({
+                            x: Math.random() * width,
+                            y: Math.random() * height,
+                            size: Math.random() * 1.5,
+                            speed: Math.random() * 0.3 + 0.1,
+                            opacity: Math.random(),
+                            twinkleSpeed: Math.random() * 0.03
+                        });
+                    }
+                };
+                
+                let frameId;
+                const animate = () => {
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.fillStyle = '#FFF';
+                    
+                    stars.forEach(star => {
+                        star.y += star.speed;
+                        if(star.y > height) star.y = 0;
+                        star.opacity += star.twinkleSpeed;
+                        if(star.opacity > 1 || star.opacity < 0.2) star.twinkleSpeed *= -1;
+                        
+                        ctx.globalAlpha = star.opacity;
+                        ctx.beginPath();
+                        ctx.arc(star.x, star.y, star.size, 0, Math.PI*2);
+                        ctx.fill();
+                    });
+                    
+                    // Subtle Tech Grid
+                    ctx.strokeStyle = 'rgba(34, 211, 238, 0.05)';
+                    ctx.lineWidth = 1;
+                    const gridSize = 80;
+                    ctx.beginPath();
+                    for(let x=0; x<width; x+=gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+                    for(let y=0; y<height; y+=gridSize) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+                    ctx.stroke();
+
+                    frameId = requestAnimationFrame(animate);
+                };
+                
+                window.addEventListener('resize', resize);
+                resize();
+                animate();
+                return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(frameId); }
+            }, []);
+            
+            return (
+                <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden bg-gradient-to-b from-[#020408] via-[#050b14] to-[#020408]">
+                    <canvas ref={canvasRef} className="absolute inset-0" />
+                </div>
+            );
+        };
+
+        // --- Icons ---
+        const Icons = {
+            Pencil: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
+            Eraser: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>,
+            Bucket: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>,
+            BucketAll: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M2 17h20"/></svg>,
+            EyeDropper: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 5L18 9l.9.9"/><path d="m10 14 1.1 1.1a2.1 2.1 0 1 1-2.9 2.9l-1.1-1.1"/><path d="m15 6-3 3"/><path d="m15 9 3 3"/></svg>,
+            Line: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="22" x2="22" y2="2"/></svg>,
+            Rect: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>,
+            Circle: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/></svg>,
+            Dither: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="18" y="2" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="14" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/><rect x="18" y="10" width="4" height="4"/><rect x="6" y="14" width="4" height="4"/><rect x="14" y="14" width="4" height="4"/><rect x="2" y="18" width="4" height="4"/><rect x="10" y="18" width="4" height="4"/><rect x="18" y="18" width="4" height="4"/></svg>,
+            Lighten: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>,
+            MovePixels: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>,
+            Layers: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+            Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>,
+            Eye: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+            EyeOff: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+            Play: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+            Pause: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
+            Copy: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+            Download: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+            Upload: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
+            Close: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+            Center: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>,
+            Undo: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>,
+            Redo: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>,
+            Folder: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>,
+        };
+
+        const rgbToHex = (r, g, b) => "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        const hexToRgb = (hex) => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
+        };
+
+        const adjustBrightness = (hex, amount) => {
+            let { r, g, b } = hexToRgb(hex);
+            r = Math.min(255, Math.max(0, r + amount));
+            g = Math.min(255, Math.max(0, g + amount));
+            b = Math.min(255, Math.max(0, b + amount));
+            return rgbToHex(r, g, b);
+        };
+
+        const Modal = ({ isOpen, title, children, onClose, onConfirm, showConfirm = true, confirmText = 'OK' }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+                    <div className="bg-space-800 rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.2)] border border-tech-glow w-full max-w-sm p-6 transform transition-all">
+                        <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                            <h3 className="text-lg font-bold text-tech-400 tracking-wider uppercase">{title}</h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-white"><Icons.Close /></button>
+                        </div>
+                        <div className="mb-6 text-gray-300">{children}</div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={onClose} className="px-4 py-2 rounded bg-space-700 hover:bg-gray-600 text-sm font-medium border border-gray-600">Cancel</button>
+                            {showConfirm && <button onClick={onConfirm} className="px-4 py-2 rounded bg-tech-500 hover:bg-tech-400 text-white text-sm font-bold shadow-[0_0_10px_rgba(34,211,238,0.4)]">{confirmText}</button>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        function PixelArtStudio() {
+            const getSavedData = (key, def) => {
+                try {
+                    const saved = localStorage.getItem('pixStudioData');
+                    if (saved) return JSON.parse(saved)[key] !== undefined ? JSON.parse(saved)[key] : def;
+                } catch (e) {}
+                return def;
+            };
+
+            const [gridSize, setGridSize] = useState(() => getSavedData('gridSize', 32));
+            const [frames, setFrames] = useState(() => getSavedData('frames', [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: Array(32*32).fill(null) }] }]));
+            const [fps, setFps] = useState(() => getSavedData('fps', 8));
+            const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+            const [activeLayerId, setActiveLayerId] = useState('l1');
+            
+            const [history, setHistory] = useState([]);
+            const [historyIndex, setHistoryIndex] = useState(-1);
+
+            const [tool, setTool] = useState('pencil');
+            const [color, setColor] = useState('#00eaff');
+            const [brushSize, setBrushSize] = useState(1);
+            const [toolOpacity, setToolOpacity] = useState(100);
+            const [mirrorMode, setMirrorMode] = useState('none');
+            const [recentColors, setRecentColors] = useState(['#00eaff', '#ff00ff', '#ffffff', '#000000', '#2a2a2a']);
+            
+            const [isPlaying, setIsPlaying] = useState(false);
+            const [onionSkin, setOnionSkin] = useState(false);
+            const [zoom, setZoom] = useState(1);
+            const [pan, setPan] = useState({ x: 0, y: 0 });
+            const [showGrid, setShowGrid] = useState(true);
+            const [activeTab, setActiveTab] = useState('layers');
+            const [hoverPos, setHoverPos] = useState(null);
+            
+            const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', data: null });
+            const [inputValue, setInputValue] = useState('');
+            
+            const [floatingSelection, setFloatingSelection] = useState(null); 
+
+            const [library, setLibrary] = useState(() => {
+                const saved = localStorage.getItem('pixelArtPaletteLibrary');
+                return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Cosmic Colors', palettes: [] }];
+            });
+            const [currentFolderId, setCurrentFolderId] = useState('default');
+
+            const canvasRef = useRef(null);
+            const containerRef = useRef(null);
+            const paletteInputRef = useRef(null);
+            const isDrawing = useRef(false);
+            const isPanning = useRef(false);
+            const lastPos = useRef(null);
+            const playInterval = useRef(null);
+            const startDrawPos = useRef(null); 
+
+            const currentFrame = frames[currentFrameIndex] || frames[0];
+            const activeLayer = currentFrame.layers.find(l => l.id === activeLayerId) || currentFrame.layers[0];
+
+            useEffect(() => {
+                const data = { gridSize, frames, fps };
+                localStorage.setItem('pixStudioData', JSON.stringify(data));
+            }, [gridSize, frames, fps]);
+
+            useEffect(() => localStorage.setItem('pixelArtPaletteLibrary', JSON.stringify(library)), [library]);
+
+            useEffect(() => {
+                const frame = frames[currentFrameIndex];
+                if (frame && !frame.layers.find(l => l.id === activeLayerId)) setActiveLayerId(frame.layers[0].id);
+            }, [frames, currentFrameIndex, activeLayerId]);
+
+            useEffect(() => {
+                if (history.length === 0) {
+                    setHistory([JSON.parse(JSON.stringify(frames))]);
+                    setHistoryIndex(0);
+                }
+            }, []);
+
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+                    if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [history, historyIndex]);
+
+            useEffect(() => {
+                if (isPlaying) {
+                    playInterval.current = setInterval(() => setCurrentFrameIndex(prev => (prev + 1) % frames.length), 1000 / fps);
+                } else clearInterval(playInterval.current);
+                return () => clearInterval(playInterval.current);
+            }, [isPlaying, fps, frames.length]);
+
+            const renderCanvas = useCallback(() => {
+                const canvas = canvasRef.current;
+                if(!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const pSize = canvas.width / gridSize;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                for(let y=0; y<gridSize; y++) {
+                    for(let x=0; x<gridSize; x++) {
+                        ctx.fillStyle = (x+y)%2 === 0 ? '#1e293b' : '#334155';
+                        ctx.fillRect(x*pSize, y*pSize, pSize, pSize);
+                    }
+                }
+
+                if (onionSkin && currentFrameIndex > 0 && !isPlaying) {
+                    const prevFrame = frames[currentFrameIndex - 1];
+                    ctx.globalAlpha = 0.5; 
+                    prevFrame.layers.slice().reverse().forEach(layer => {
+                        if (!layer.visible) return;
+                        layer.pixels.forEach((col, i) => {
+                            if(col) {
+                                ctx.fillStyle = col;
+                                ctx.fillRect((i%gridSize)*pSize, Math.floor(i/gridSize)*pSize, pSize, pSize);
+                            }
+                        });
+                    });
+                    ctx.globalAlpha = 1.0;
+                }
+
+                if (currentFrame && currentFrame.layers) {
+                    currentFrame.layers.slice().reverse().forEach(layer => {
+                        if (!layer.visible) return;
+                        ctx.globalAlpha = layer.opacity / 100;
+                        layer.pixels.forEach((col, i) => {
+                            if (col) {
+                                ctx.fillStyle = col;
+                                ctx.fillRect((i % gridSize) * pSize, Math.floor(i / gridSize) * pSize, pSize, pSize);
+                            }
+                        });
+                    });
+                }
+                ctx.globalAlpha = 1.0;
+
+                if (hoverPos && !isPanning.current && !isPlaying) {
+                    ctx.globalAlpha = 0.4;
+                    ctx.fillStyle = getColorWithOpacity();
+                    
+                    const drawPreviewPixel = (x, y) => {
+                        if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x*pSize, y*pSize, pSize, pSize);
+                    };
+
+                    if (isDrawing.current && startDrawPos.current && ['line', 'rect', 'circle'].includes(tool)) {
+                        const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
+                        const x = hoverPos.x, y = hoverPos.y;
+                        if (tool === 'line') {
+                            getLinePoints(x0, y0, x, y).forEach(pt => drawPreviewPixel(pt.x, pt.y));
+                        } else if (tool === 'rect') {
+                            const rx = Math.min(x0, x), ry = Math.min(y0, y);
+                            const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
+                            for(let i=rx; i<rx+rw; i++) { drawPreviewPixel(i, ry); drawPreviewPixel(i, ry+rh-1); }
+                            for(let i=ry; i<ry+rh; i++) { drawPreviewPixel(rx, i); drawPreviewPixel(rx+rw-1, i); }
+                        } else if (tool === 'circle') {
+                             const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
+                             for(let cy=y0-r; cy<=y0+r; cy++) {
+                                 for(let cx=x0-r; cx<=x0+r; cx++) {
+                                     const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
+                                     if (dist >= r - 0.5 && dist <= r + 0.5) drawPreviewPixel(cx, cy);
+                                 }
+                             }
+                        }
+                    } else if (tool === 'pencil' || tool === 'eraser' || tool === 'lighten' || tool === 'dither' || tool === 'bucket' || tool === 'bucket_all') {
+                        for(let oy = -Math.floor(brushSize/2); oy <= Math.floor((brushSize-1)/2); oy++) {
+                            for(let ox = -Math.floor(brushSize/2); ox <= Math.floor((brushSize-1)/2); ox++) {
+                                const px = hoverPos.x + ox, py = hoverPos.y + oy;
+                                if (tool === 'dither' && (px + py) % 2 !== 0) continue;
+                                drawPreviewPixel(px, py);
+                            }
+                        }
+                    } else if (tool === 'line' || tool === 'rect' || tool === 'circle') {
+                         drawPreviewPixel(hoverPos.x, hoverPos.y);
+                    }
+                    ctx.globalAlpha = 1.0;
+                }
+
+                if (floatingSelection) {
+                    floatingSelection.pixels.forEach(p => {
+                        const drawX = p.x + floatingSelection.offsetX;
+                        const drawY = p.y + floatingSelection.offsetY;
+                        if (drawX >= 0 && drawX < gridSize && drawY >= 0 && drawY < gridSize) {
+                            ctx.fillStyle = p.color;
+                            ctx.fillRect(drawX * pSize, drawY * pSize, pSize, pSize);
+                            ctx.strokeStyle = '#22d3ee';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(drawX * pSize, drawY * pSize, pSize, pSize);
+                        }
+                    });
+                }
+
+                if (showGrid && zoom > 4) {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+                    ctx.lineWidth = 1/zoom;
+                    ctx.beginPath();
+                    for(let i=0; i<=gridSize; i++) {
+                        ctx.moveTo(i*pSize, 0); ctx.lineTo(i*pSize, canvas.height);
+                        ctx.moveTo(0, i*pSize); ctx.lineTo(canvas.width, i*pSize);
+                    }
+                    ctx.stroke();
+                }
+
+            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos]);
+
+            useEffect(() => { requestAnimationFrame(renderCanvas); }, [renderCanvas]);
+
+            const saveHistory = (newFrames) => {
+                const deepCopy = JSON.parse(JSON.stringify(newFrames));
+                const newHistory = history.slice(0, historyIndex + 1);
+                newHistory.push(deepCopy);
+                if (newHistory.length > 20) newHistory.shift();
+                setHistory(newHistory);
+                setHistoryIndex(newHistory.length - 1);
+                setFrames(deepCopy);
+            };
+
+            const undo = () => {
+                if (historyIndex > 0) {
+                    const idx = historyIndex - 1;
+                    setHistoryIndex(idx);
+                    setFrames(JSON.parse(JSON.stringify(history[idx])));
+                }
+            };
+
+            const redo = () => {
+                if (historyIndex < history.length - 1) {
+                    const idx = historyIndex + 1;
+                    setHistoryIndex(idx);
+                    setFrames(JSON.parse(JSON.stringify(history[idx])));
+                }
+            };
+
+            const addRecentColor = (c) => {
+                setRecentColors(prev => {
+                    const normalized = c.toUpperCase();
+                    if (prev.includes(normalized)) return [normalized, ...prev.filter(x => x !== normalized)];
+                    return [normalized, ...prev].slice(0, 16);
+                });
+            };
+
+            const resetCanvas = (size) => {
+                const newFrames = [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: Array(size*size).fill(null) }] }];
+                setGridSize(size);
+                setFrames(newFrames);
+                setHistory([JSON.parse(JSON.stringify(newFrames))]);
+                setHistoryIndex(0);
+                setCurrentFrameIndex(0);
+                setActiveLayerId('l1');
+                setZoom(1);
+                setPan({x: 0, y: 0});
+            };
+
+            const centerCanvas = () => { setZoom(1); setPan({x: 0, y: 0}); };
+            const openModal = (type, data = null) => { setInputValue(''); setModalConfig({ isOpen: true, type, data }); };
+            const closeModal = () => setModalConfig({ ...modalConfig, isOpen: false });
+
+            const handleModalConfirm = () => {
+                if (modalConfig.type === 'resize') {
+                    const size = parseInt(inputValue);
+                    if(size && size > 0) resetCanvas(size);
+                } else if (modalConfig.type === 'confirm-resize') {
+                     resetCanvas(modalConfig.data);
+                } else if (modalConfig.type === 'clear') {
+                    const newFrames = JSON.parse(JSON.stringify(frames));
+                    const f = newFrames[currentFrameIndex];
+                    f.layers = f.layers.map(l => l.id === activeLayerId ? { ...l, pixels: Array(gridSize*gridSize).fill(null) } : l);
+                    saveHistory(newFrames);
+                } else if (modalConfig.type === 'newFolder' && inputValue) {
+                    setLibrary(prev => [...prev, { id: Date.now().toString(), name: inputValue, palettes: [] }]);
+                } else if (modalConfig.type === 'newPalette' && inputValue) {
+                    setLibrary(prev => prev.map(folder => {
+                        if(folder.id === currentFolderId) {
+                            return { ...folder, palettes: [...folder.palettes, { id: Date.now(), name: inputValue, colors: ['#00eaff', '#ff00ff'] }] };
+                        }
+                        return folder;
+                    }));
+                } else if (modalConfig.type === 'importPalette' && inputValue && modalConfig.data) {
+                    setLibrary(prev => prev.map(folder => {
+                        if(folder.id === currentFolderId) {
+                            return { ...folder, palettes: [...folder.palettes, { id: Date.now(), name: inputValue, colors: modalConfig.data }] };
+                        }
+                        return folder;
+                    }));
+                }
+                closeModal();
+            };
+
+            const getCoordinates = (e) => {
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                const x = Math.floor((cx - rect.left) * scaleX / (canvas.width / gridSize));
+                const y = Math.floor((cy - rect.top) * scaleY / (canvas.height / gridSize));
+                return { x, y };
+            };
+
+            const getColorWithOpacity = () => {
+                if (toolOpacity >= 100) return color;
+                const alpha = Math.round(toolOpacity * 2.55).toString(16).padStart(2, '0');
+                return `${color}${alpha}`;
+            };
+
+            const plotPixel = (x, y, newPixels, colorToUse) => {
+                if(x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
+                const idx = y * gridSize + x;
+                newPixels[idx] = colorToUse;
+            };
+
+            const paint = (cx, cy, tempPixels) => {
+                const targets = [{x: cx, y: cy}];
+                if(mirrorMode.includes('x')) targets.push({x: gridSize - 1 - cx, y: cy});
+                if(mirrorMode.includes('y')) targets.push({x: cx, y: gridSize - 1 - cy});
+                if(mirrorMode === 'xy') targets.push({x: gridSize - 1 - cx, y: gridSize - 1 - cy});
+
+                let drawColor = tool === 'eraser' ? null : getColorWithOpacity();
+                targets.forEach(pt => {
+                    for(let oy = -Math.floor(brushSize/2); oy <= Math.floor((brushSize-1)/2); oy++) {
+                        for(let ox = -Math.floor(brushSize/2); ox <= Math.floor((brushSize-1)/2); ox++) {
+                            const px = pt.x + ox, py = pt.y + oy;
+                            if (tool === 'dither' && (px + py) % 2 !== 0) continue;
+                            plotPixel(px, py, tempPixels, drawColor);
+                        }
+                    }
+                });
+            };
+
+            const getLinePoints = (x0, y0, x1, y1) => {
+                const points = [];
+                const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+                const sx = (x0 < x1) ? 1 : -1, sy = (y0 < y1) ? 1 : -1;
+                let err = dx - dy;
+                while (true) {
+                    points.push({x: x0, y: y0});
+                    if (x0 === x1 && y0 === y1) break;
+                    const e2 = 2 * err;
+                    if (e2 > -dy) { err -= dy; x0 += sx; }
+                    if (e2 < dx) { err += dx; y0 += sy; }
+                }
+                return points;
+            };
+
+            const handleWheel = (e) => {
+                const rect = containerRef.current.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const delta = -Math.sign(e.deltaY) * 0.5;
+                const newZoom = Math.min(Math.max(1, zoom + delta), 40);
+                const scaleFactor = newZoom / zoom;
+                const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
+                const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
+                setZoom(newZoom);
+                setPan({x: newPanX, y: newPanY});
+            };
+
+            const handlePointerDown = (e) => {
+                if (activeTab === 'animate' && isPlaying) setIsPlaying(false);
+                
+                if (e.button === 1 || (e.shiftKey && tool !== 'lighten')) {
+                    e.preventDefault();
+                    isPanning.current = true;
+                    lastPos.current = { x: e.clientX || e.touches[0].clientX, y: e.clientY || e.touches[0].clientY };
+                    return;
+                }
+
+                const { x, y } = getCoordinates(e);
+                
+                if (tool === 'move_pixels') {
+                    const idx = y * gridSize + x;
+                    const targetColor = activeLayer.pixels[idx];
+                    if (!targetColor) return;
+                    
+                    const selection = [];
+                    const stack = [{x, y}];
+                    const visited = new Set();
+                    const newPixels = [...activeLayer.pixels];
+
+                    while (stack.length) {
+                        const {x: cx, y: cy} = stack.pop();
+                        const key = `${cx},${cy}`;
+                        if(visited.has(key)) continue;
+                        visited.add(key);
+                        const i = cy * gridSize + cx;
+                        if(newPixels[i] === targetColor) {
+                            selection.push({x: cx, y: cy, color: newPixels[i]});
+                            newPixels[i] = null;
+                            if(cx>0) stack.push({x: cx-1, y: cy});
+                            if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
+                            if(cy>0) stack.push({x: cx, y: cy-1});
+                            if(cy<gridSize-1) stack.push({x: cx, y: cy+1});
+                            if(cx>0 && cy>0) stack.push({x: cx-1, y: cy-1});
+                            if(cx<gridSize-1 && cy>0) stack.push({x: cx+1, y: cy-1});
+                            if(cx>0 && cy<gridSize-1) stack.push({x: cx-1, y: cy+1});
+                            if(cx<gridSize-1 && cy<gridSize-1) stack.push({x: cx+1, y: cy+1});
+                        }
+                    }
+                    if (selection.length > 0) {
+                        setFrames(prev => {
+                            const nf = JSON.parse(JSON.stringify(prev)); 
+                            nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.map(l => l.id === activeLayerId ? {...l, pixels: newPixels} : l); 
+                            return nf;
+                        });
+                        setFloatingSelection({ pixels: selection, originX: x, originY: y, offsetX: 0, offsetY: 0 });
+                        isDrawing.current = true;
+                    }
+                    return;
+                }
+
+                if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
+
+                if (tool === 'dropper') {
+                    let picked = null;
+                    currentFrame.layers.slice().reverse().forEach(l => {
+                         if(!picked && l.visible && l.pixels[y * gridSize + x]) picked = l.pixels[y * gridSize + x];
+                    });
+                    if (picked) {
+                        const hex = picked.length > 7 ? picked.substring(0, 7) : picked;
+                        setColor(hex);
+                        addRecentColor(hex);
+                    }
+                    setTool('pencil');
+                    return;
+                }
+
+                if (tool === 'bucket' || tool === 'bucket_all') {
+                    const targetColor = activeLayer.pixels[y*gridSize+x];
+                    const fillCol = getColorWithOpacity();
+                    if (targetColor === fillCol) return;
+                    const newPixels = [...activeLayer.pixels];
+                    
+                    if (tool === 'bucket_all') {
+                        for(let i=0; i<newPixels.length; i++) if(newPixels[i]===targetColor) newPixels[i] = fillCol;
+                    } else {
+                        const stack = [{x, y}];
+                        const visited = new Set();
+                        while(stack.length) {
+                            const {x: cx, y: cy} = stack.pop();
+                            const key = `${cx},${cy}`;
+                            if(visited.has(key)) continue;
+                            visited.add(key);
+                            const idx = cy*gridSize+cx;
+                            if(newPixels[idx] === targetColor) {
+                                newPixels[idx] = fillCol;
+                                if(cx>0) stack.push({x: cx-1, y: cy});
+                                if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
+                                if(cy>0) stack.push({x: cx, y: cy-1});
+                                if(cy<gridSize-1) stack.push({x: cx, y: cy+1});
+                            }
+                        }
+                    }
+                    const updatedFrames = JSON.parse(JSON.stringify(frames));
+                    updatedFrames[currentFrameIndex].layers = updatedFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                    saveHistory(updatedFrames);
+                    addRecentColor(color);
+                    return;
+                }
+
+                if (tool === 'lighten') {
+                    const idx = y * gridSize + x;
+                    const targetColor = activeLayer.pixels[idx];
+                    if (!targetColor) return;
+                    const amount = e.shiftKey ? -20 : 20;
+                    
+                    if (e.ctrlKey || e.altKey) {
+                        let newPixels = [...activeLayer.pixels];
+                        if (e.ctrlKey) {
+                            newPixels = newPixels.map(c => c === targetColor ? adjustBrightness(c, amount) : c);
+                        } else {
+                            const stack = [{x, y}];
+                            const visited = new Set();
+                            while(stack.length) {
+                                const {x: cx, y: cy} = stack.pop();
+                                const key = `${cx},${cy}`;
+                                if(visited.has(key)) continue;
+                                visited.add(key);
+                                const i = cy*gridSize+cx;
+                                if(newPixels[i] === targetColor) {
+                                    newPixels[i] = adjustBrightness(newPixels[i], amount);
+                                    if(cx>0) stack.push({x: cx-1, y: cy});
+                                    if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
+                                    if(cy>0) stack.push({x: cx, y: cy-1});
+                                    if(cy<gridSize-1) stack.push({x: cx, y: cy+1});
+                                }
+                            }
+                        }
+                        const updatedFrames = JSON.parse(JSON.stringify(frames));
+                        updatedFrames[currentFrameIndex].layers = updatedFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                        saveHistory(updatedFrames);
+                        isDrawing.current = false;
+                        return;
+                    }
+                }
+
+                isDrawing.current = true;
+                lastPos.current = { x, y };
+                startDrawPos.current = { x, y };
+
+                if (['line', 'rect', 'circle'].includes(tool)) return; 
+
+                const newPixels = [...activeLayer.pixels];
+                if (tool === 'lighten') {
+                    const idx = y*gridSize+x;
+                    const existing = newPixels[idx];
+                    if(existing) newPixels[idx] = adjustBrightness(existing, e.shiftKey ? -20 : 20);
+                } else {
+                    paint(x, y, newPixels);
+                    if(tool !== 'eraser' && tool !== 'dither') addRecentColor(color);
+                }
+                
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev));
+                    nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                    return nf;
+                });
+            };
+
+            const handlePointerMove = (e) => {
+                if (isPanning.current) {
+                    const cx = e.clientX || e.touches[0].clientX;
+                    const cy = e.clientY || e.touches[0].clientY;
+                    const dx = cx - lastPos.current.x;
+                    const dy = cy - lastPos.current.y;
+                    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+                    lastPos.current = { x: cx, y: cy };
+                    return;
+                }
+                
+                const { x, y } = getCoordinates(e);
+                setHoverPos({x, y});
+
+                if (!isDrawing.current) return;
+
+                if (tool === 'move_pixels' && floatingSelection) {
+                    const dx = x - floatingSelection.originX;
+                    const dy = y - floatingSelection.originY;
+                    setFloatingSelection(prev => ({ ...prev, offsetX: dx, offsetY: dy }));
+                    return;
+                }
+
+                if (['line', 'rect', 'circle'].includes(tool)) return; 
+
+                const newPixels = [...activeLayer.pixels];
+                getLinePoints(lastPos.current.x, lastPos.current.y, x, y).forEach(pt => {
+                    if (tool === 'lighten') {
+                        const idx = pt.y*gridSize+pt.x;
+                        if(idx >= 0 && idx < newPixels.length && newPixels[idx]) {
+                            newPixels[idx] = adjustBrightness(newPixels[idx], e.shiftKey ? -20 : 20);
+                        }
+                    } else {
+                        paint(pt.x, pt.y, newPixels);
+                    }
+                });
+                
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev));
+                    nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                    return nf;
+                });
+                lastPos.current = { x, y };
+            };
+
+            const handlePointerUp = (e) => {
+                if (isPanning.current) {
+                    isPanning.current = false;
+                    return;
+                }
+                if (!isDrawing.current) return;
+                isDrawing.current = false;
+                
+                if (tool === 'move_pixels' && floatingSelection) {
+                    const newPixels = [...activeLayer.pixels];
+                    floatingSelection.pixels.forEach(p => {
+                        const destX = p.x + floatingSelection.offsetX;
+                        const destY = p.y + floatingSelection.offsetY;
+                        if(destX >= 0 && destX < gridSize && destY >= 0 && destY < gridSize) {
+                            newPixels[destY * gridSize + destX] = p.color;
+                        }
+                    });
+                    const updatedFrames = JSON.parse(JSON.stringify(frames));
+                    updatedFrames[currentFrameIndex].layers = updatedFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                    saveHistory(updatedFrames);
+                    setFloatingSelection(null);
+                    return;
+                }
+
+                const updatedFrames = JSON.parse(JSON.stringify(frames));
+                let newPixels = [...activeLayer.pixels];
+
+                if (['line', 'rect', 'circle'].includes(tool)) {
+                   const { x, y } = getCoordinates(e);
+                   const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
+                   const drawColor = getColorWithOpacity();
+
+                   if (tool === 'line') {
+                       getLinePoints(x0, y0, x, y).forEach(pt => plotPixel(pt.x, pt.y, newPixels, drawColor));
+                   } else if (tool === 'rect') {
+                        const rx = Math.min(x0, x), ry = Math.min(y0, y);
+                        const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
+                        for(let i=rx; i<rx+rw; i++) { plotPixel(i, ry, newPixels, drawColor); plotPixel(i, ry+rh-1, newPixels, drawColor); }
+                        for(let i=ry; i<ry+rh; i++) { plotPixel(rx, i, newPixels, drawColor); plotPixel(rx+rw-1, i, newPixels, drawColor); }
+                   } else if (tool === 'circle') {
+                        const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
+                         for(let cy=y0-r; cy<=y0+r; cy++) {
+                             for(let cx=x0-r; cx<=x0+r; cx++) {
+                                 const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
+                                 if (dist >= r - 0.5 && dist <= r + 0.5) plotPixel(cx, cy, newPixels, drawColor);
+                             }
+                         }
+                   }
+                   addRecentColor(color);
+                   updatedFrames[currentFrameIndex].layers = updatedFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                } 
+                
+                saveHistory(updatedFrames);
+            };
+
+            const updateLayerOpacity = (id, val) => {
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev)); nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.map(l => l.id === id ? { ...l, opacity: val } : l); return nf;
+                });
+            };
+            const addLayer = () => {
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev)); nf[currentFrameIndex].layers = [{ id: 'l'+Date.now(), name: `Layer ${nf[currentFrameIndex].layers.length+1}`, visible: true, opacity: 100, pixels: Array(gridSize*gridSize).fill(null) }, ...nf[currentFrameIndex].layers]; return nf;
+                });
+                setActiveLayerId(frames[currentFrameIndex].layers[0].id);
+            };
+            const deleteLayer = (lid) => {
+                if (currentFrame.layers.length <= 1) return;
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev)); nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.filter(l => l.id !== lid); return nf;
+                });
+            };
+            const toggleLayerVis = (lid) => {
+                setFrames(prev => {
+                    const nf = JSON.parse(JSON.stringify(prev)); nf[currentFrameIndex].layers = nf[currentFrameIndex].layers.map(l => l.id === lid ? { ...l, visible: !l.visible } : l); return nf;
+                });
+            };
+            const addFrame = () => {
+                const newFrames = JSON.parse(JSON.stringify(frames));
+                newFrames.splice(currentFrameIndex + 1, 0, { id: 'f'+Date.now(), layers: currentFrame.layers.map(l => ({ ...l, pixels: Array(gridSize*gridSize).fill(null) })) });
+                setFrames(newFrames); setCurrentFrameIndex(currentFrameIndex+1);
+            };
+            const deleteFrame = (i) => {
+                if(frames.length<=1) return;
+                const nf=frames.filter((_, idx)=>idx!==i); setFrames(nf); if(currentFrameIndex>=nf.length) setCurrentFrameIndex(nf.length-1);
+            };
+            const copyFrame = () => {
+                const nf = JSON.parse(JSON.stringify(frames)); nf.splice(currentFrameIndex+1, 0, { ...JSON.parse(JSON.stringify(currentFrame)), id: 'f'+Date.now() }); setFrames(nf); setCurrentFrameIndex(currentFrameIndex+1);
+            };
+            const handlePaletteImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                e.target.value = null; 
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const scale = Math.min(1, 100 / Math.max(img.width, img.height));
+                        canvas.width = img.width * scale;
+                        canvas.height = img.height * scale;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        const data = ctx.getImageData(0,0, canvas.width, canvas.height).data;
+                        const colors = new Set();
+                        for(let i=0; i<data.length; i+=4) {
+                            if(data[i+3] > 128) colors.add(rgbToHex(data[i], data[i+1], data[i+2]));
+                        }
+                        const arr = Array.from(colors).slice(0, 32);
+                        if(arr.length) openModal('importPalette', arr);
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(file);
+            };
+            const exportSheet = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = gridSize * frames.length;
+                canvas.height = gridSize;
+                const ctx = canvas.getContext('2d');
+                frames.forEach((frame, idx) => {
+                    const offsetX = idx * gridSize;
+                    frame.layers.slice().reverse().forEach(l => {
+                        if(l.visible) {
+                            l.pixels.forEach((c, i) => { if(c) { ctx.fillStyle = c; ctx.fillRect(offsetX + (i%gridSize), Math.floor(i/gridSize), 1, 1); } })
+                        }
+                    });
+                });
+                const link = document.createElement('a');
+                link.download = 'omni-pix.png';
+                link.href = canvas.toDataURL();
+                link.click();
+            };
+
+            const currentFolder = library.find(f => f.id === currentFolderId) || library[0];
+
+            return (
+                <div className="flex flex-col h-screen font-sans overflow-hidden" onContextMenu={e => e.preventDefault()}>
+                    <SpaceBackground />
+                    
+                    <header className="glass-panel p-3 flex justify-between items-center shadow-lg z-10 mx-2 mt-2 rounded-xl">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-tech-500 to-blue-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(34,211,238,0.5)]">
+                                <Icons.Pencil />
+                            </div>
+                            <div>
+                                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-tech-400 to-blue-400 tracking-wider">OMNI-PIX</h1>
+                                <p className="text-[10px] text-tech-400 opacity-70 tracking-widest uppercase">Pixel Art Studio</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                             <button onClick={undo} disabled={historyIndex<=0} className="p-2 text-tech-400 hover:text-white disabled:opacity-30 transition-colors"><Icons.Undo /></button>
+                             <button onClick={redo} disabled={historyIndex>=history.length-1} className="p-2 text-tech-400 hover:text-white disabled:opacity-30 transition-colors"><Icons.Redo /></button>
+                             <div className="w-px h-6 bg-space-700 mx-2"></div>
+                             <div className="flex bg-space-900/50 rounded-lg p-1 gap-1 border border-space-700">
+                                {[16, 32, 64].map(s => <button key={s} onClick={() => openModal('confirm-resize', s)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${gridSize===s?'bg-tech-500 text-white shadow-[0_0_10px_rgba(6,182,212,0.5)]':'text-gray-400 hover:text-tech-400'}`}>{s}x</button>)}
+                                <button onClick={() => openModal('resize')} className="px-3 py-1 text-xs font-bold rounded-md text-gray-400 hover:text-tech-400 transition-colors">Custom</button>
+                             </div>
+                             <div className="w-px h-6 bg-space-700 mx-2"></div>
+                             <button onClick={exportSheet} className="flex items-center gap-2 bg-gradient-to-r from-tech-500 to-blue-600 hover:from-tech-400 hover:to-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all hover:scale-105">
+                                <Icons.Download /> Export
+                             </button>
+                        </div>
+                    </header>
+
+                    <div className="flex flex-1 overflow-hidden p-2 gap-2">
+                        <aside className="w-16 glass-panel rounded-xl flex flex-col items-center py-4 gap-3 z-10 overflow-y-auto hide-scrollbar">
+                            {[
+                                { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B' },
+                                { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E' },
+                                { id: 'bucket', icon: Icons.Bucket, label: 'Fill', binding: 'F' },
+                                { id: 'bucket_all', icon: Icons.BucketAll, label: 'Paint All', binding: 'A' },
+                                { id: 'move_pixels', icon: Icons.MovePixels, label: 'Move', binding: 'M' },
+                                { id: 'line', icon: Icons.Line, label: 'Line', binding: 'L' },
+                                { id: 'rect', icon: Icons.Rect, label: 'Rect', binding: 'R' },
+                                { id: 'circle', icon: Icons.Circle, label: 'Circle', binding: 'C' },
+                                { id: 'dither', icon: Icons.Dither, label: 'Dither', binding: 'D' },
+                                { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'Shift: Darken, Ctrl: Layer, Alt: Connected' },
+                                { id: 'dropper', icon: Icons.EyeDropper, label: 'Picker', binding: 'I' },
+                            ].map(t => (
+                                <button key={t.id} onClick={() => setTool(t.id)} 
+                                    className={`p-3 rounded-xl transition-all relative group ${tool===t.id ? 'bg-tech-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] scale-110' : 'text-gray-400 hover:bg-space-700 hover:text-tech-400'}`}>
+                                    <t.icon />
+                                    <span className="absolute left-14 bg-space-800 text-tech-400 text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity border border-tech-500/30 whitespace-nowrap pointer-events-none z-50">
+                                        {t.label} <span className="text-gray-500">({t.binding})</span>
+                                    </span>
+                                </button>
+                            ))}
+                            <div className="w-8 h-px bg-space-700 my-1"></div>
+                            {['x', 'y', 'xy'].map(m => (
+                                <button key={m} onClick={() => setMirrorMode(prev => prev === m ? 'none' : m)} 
+                                    className={`text-[10px] font-bold w-8 h-8 rounded flex items-center justify-center uppercase border border-space-700 transition-all ${mirrorMode === m ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-space-900 text-gray-500 hover:text-white'}`}>
+                                    {m}
+                                </button>
+                            ))}
+                             <div className="flex-1"></div>
+                             <button onClick={() => openModal('clear')} className="text-red-400 hover:bg-red-900/30 p-2 rounded transition-colors"><Icons.Trash /></button>
+                        </aside>
+
+                        <main className="flex-1 relative overflow-hidden rounded-xl border border-space-700 bg-space-900/80 backdrop-blur-sm" 
+                            onPointerDown={handlePointerDown} 
+                            onPointerMove={handlePointerMove} 
+                            onPointerUp={handlePointerUp}
+                            onWheel={handleWheel}>
+                            
+                            <div className="absolute inset-0 pointer-events-none opacity-20" 
+                                style={{backgroundImage: 'linear-gradient(rgba(34, 211, 238, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 211, 238, 0.1) 1px, transparent 1px)', backgroundSize: '40px 40px'}}>
+                            </div>
+
+                            <div ref={containerRef} className="absolute w-full h-full overflow-hidden flex items-center justify-center">
+                                <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-space-800" 
+                                    style={{
+                                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, 
+                                        transformOrigin: '0 0',
+                                        width: 512, height: 512,
+                                        imageRendering: 'pixelated',
+                                        cursor: isPanning.current ? 'grabbing' : 'crosshair',
+                                        boxShadow: '0 0 0 1px rgba(255,255,255,0.1)'
+                                    }}>
+                                    <canvas ref={canvasRef} width={gridSize*10} height={gridSize*10} className="w-full h-full block" />
+                                </div>
+                            </div>
+
+                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20">
+                                <span className="opacity-70">COORD: {hoverPos ? `${hoverPos.x},${hoverPos.y}` : '-,-'}</span>
+                                <span className="w-px h-3 bg-space-600"></span>
+                                <span>{gridSize}x{gridSize}</span>
+                                <span className="w-px h-3 bg-space-600"></span>
+                                <span>{Math.round(zoom*100)}%</span>
+                                <button onClick={centerCanvas} className="pointer-events-auto hover:text-white hover:scale-110 transition-transform" title="Recenter"><Icons.Center /></button>
+                            </div>
+                            
+                            <div className="absolute bottom-3 right-4 text-[10px] text-gray-500 font-mono opacity-50 pointer-events-none">
+                                Owned by Omni-Science | Made by king_of_coding
+                            </div>
+                        </main>
+
+                        <aside className="w-72 glass-panel rounded-xl flex flex-col z-10">
+                            <div className="p-4 border-b border-space-700">
+                                <div className="flex justify-between items-end mb-2">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Current Color</span>
+                                    <span className="text-[10px] font-mono text-tech-400">{color}</span>
+                                </div>
+                                <div className="flex gap-3 mb-4">
+                                    <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-gray-600 shadow-inner group">
+                                        <input type="color" value={color} onChange={e => { setColor(e.target.value); }} className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer p-0 border-0 opacity-0" />
+                                        <div className="w-full h-full" style={{backgroundColor: color}}></div>
+                                    </div>
+                                    <div className="flex-1 space-y-2">
+                                        <div>
+                                            <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>SIZE</span><span>{brushSize}px</span></div>
+                                            <input type="range" min="1" max="8" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>OPACITY</span><span>{toolOpacity}%</span></div>
+                                            <input type="range" min="10" max="100" value={toolOpacity} onChange={e => setToolOpacity(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {recentColors.map((c, i) => <button key={i} onClick={() => setColor(c)} className="w-6 h-6 rounded border border-white/10 hover:scale-110 transition-transform shadow-sm" style={{background: c}} />)}
+                                </div>
+                            </div>
+
+                            <div className="flex text-xs font-bold border-b border-space-700 uppercase tracking-wider">
+                                {['layers', 'animate', 'library'].map(tab => (
+                                    <button key={tab} onClick={() => setActiveTab(tab)} 
+                                        className={`flex-1 py-3 transition-colors ${activeTab===tab ? 'text-tech-400 border-b-2 border-tech-400 bg-space-800/50' : 'text-gray-500 hover:text-white hover:bg-space-800/30'}`}>
+                                        {tab === 'library' ? 'Palette Library' : tab}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-3 bg-space-900/30">
+                                {activeTab === 'layers' && (
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-[10px] text-gray-500 font-bold uppercase">Frame {currentFrameIndex + 1} Layers</span>
+                                            <button onClick={addLayer} className="text-tech-400 hover:text-white transition-colors"><Icons.Plus /></button>
+                                        </div>
+                                        {currentFrame && currentFrame.layers && currentFrame.layers.map(layer => (
+                                            <div key={layer.id} onClick={() => setActiveLayerId(layer.id)} 
+                                                className={`flex items-center gap-2 p-2 rounded border cursor-pointer transition-all ${activeLayerId===layer.id ? 'bg-tech-500/20 border-tech-500/50 shadow-[0_0_10px_rgba(6,182,212,0.1)]' : 'bg-space-800 border-transparent hover:bg-space-700'}`}>
+                                                <button onClick={(e) => {e.stopPropagation(); toggleLayerVis(layer.id);}} className="text-gray-400 hover:text-white">
+                                                    {layer.visible ? <Icons.Eye /> : <Icons.EyeOff />}
+                                                </button>
+                                                <span className={`flex-1 text-sm truncate select-none ${activeLayerId===layer.id ? 'text-white' : 'text-gray-400'}`}>{layer.name}</span>
+                                                <input type="range" min="0" max="100" value={layer.opacity} onClick={e=>e.stopPropagation()} onChange={(e) => updateLayerOpacity(layer.id, parseInt(e.target.value))} className="w-12 h-1 bg-space-900 rounded appearance-none cursor-pointer" />
+                                                <button onClick={(e) => {e.stopPropagation(); deleteLayer(layer.id);}} className="text-gray-600 hover:text-red-400"><Icons.Trash /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {activeTab === 'animate' && (
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center bg-space-800 p-2 rounded-lg border border-space-700">
+                                            <button onClick={() => setIsPlaying(!isPlaying)} className={`w-8 h-8 rounded flex items-center justify-center transition-all ${isPlaying ? 'bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-tech-500 text-white shadow-[0_0_10px_rgba(6,182,212,0.5)] hover:bg-tech-400'}`}>
+                                                {isPlaying ? <Icons.Pause /> : <Icons.Play />}
+                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold text-gray-500">FPS</span>
+                                                <input type="number" value={fps} onChange={e => setFps(Number(e.target.value))} className="w-10 bg-space-900 border border-space-600 rounded px-1 text-sm text-center text-tech-400" />
+                                            </div>
+                                            <button onClick={() => setOnionSkin(!onionSkin)} className={`p-1.5 rounded transition-colors ${onionSkin ? 'bg-yellow-500/20 text-yellow-500' : 'text-gray-600 hover:text-white'}`} title="Onion Skin">
+                                                <div className="w-4 h-4 border-2 border-current rounded-full opacity-50"></div>
+                                            </button>
+                                        </div>
+                                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                                            {frames.map((f, i) => (
+                                                <div key={f.id} onClick={() => setCurrentFrameIndex(i)} 
+                                                    className={`flex-shrink-0 w-12 h-16 rounded border flex items-center justify-center text-xs font-bold cursor-pointer relative transition-all ${currentFrameIndex===i ? 'border-tech-500 bg-tech-500/20 text-tech-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 'border-space-700 bg-space-800 text-gray-600 hover:border-gray-500'}`}>
+                                                    {i + 1}
+                                                    {frames.length > 1 && <button onClick={(e) => {e.stopPropagation(); deleteFrame(i);}} className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px] hover:bg-red-400">&times;</button>}
+                                                </div>
+                                            ))}
+                                            <button onClick={addFrame} className="flex-shrink-0 w-12 h-16 rounded border border-dashed border-space-600 flex items-center justify-center text-gray-600 hover:text-tech-400 hover:border-tech-400 hover:bg-space-800 transition-colors"><Icons.Plus /></button>
+                                        </div>
+                                        <button onClick={copyFrame} className="w-full py-2 bg-space-800 hover:bg-space-700 border border-space-700 rounded text-xs text-gray-300 flex items-center justify-center gap-2 transition-colors"><Icons.Copy /> Duplicate Frame</button>
+                                    </div>
+                                )}
+                                
+                                {activeTab === 'library' && (
+                                     <div className="space-y-4">
+                                        <div className="flex gap-1 border-b border-space-700 pb-2 mb-2 overflow-x-auto">
+                                            <button onClick={() => openModal('newFolder')} className="px-2 py-1 bg-space-800 rounded text-[10px] hover:bg-space-700 whitespace-nowrap border border-space-600 text-tech-400">+ New</button>
+                                            {library.map(f => (
+                                                <button key={f.id} onClick={() => setCurrentFolderId(f.id)} 
+                                                    className={`px-2 py-1 rounded text-[10px] whitespace-nowrap flex items-center gap-1 transition-colors ${currentFolderId===f.id ? 'bg-tech-600 text-white shadow-sm' : 'bg-space-800 text-gray-500 hover:text-white'}`}>
+                                                    <Icons.Folder /> {f.name}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h3 className="text-xs font-bold text-tech-400 uppercase tracking-widest">{currentFolder.name}</h3>
+                                            <button onClick={() => { 
+                                                if(library.length > 1 && confirm('Delete folder?')) {
+                                                    setLibrary(prev => prev.filter(f => f.id !== currentFolderId));
+                                                    setCurrentFolderId(library[0].id === currentFolderId ? library[1].id : library[0].id);
+                                                }
+                                            }} className="text-[10px] text-gray-600 hover:text-red-400 transition-colors">Delete</button>
+                                        </div>
+
+                                        <div className="p-3 bg-space-800/50 rounded border border-space-700 text-center space-y-2">
+                                            <input type="file" ref={paletteInputRef} className="hidden" onChange={handlePaletteImport} accept="image/*" />
+                                            <button onClick={() => paletteInputRef.current.click()} className="text-xs text-gray-400 hover:text-tech-400 flex items-center justify-center gap-2 w-full py-1 hover:bg-space-700 rounded transition-colors"><Icons.Upload /> Import from Image</button>
+                                            <button onClick={() => openModal('newPalette')} className="text-xs text-gray-400 hover:text-tech-400 flex items-center justify-center gap-2 w-full py-1 hover:bg-space-700 rounded transition-colors"><Icons.Plus /> Create New Palette</button>
+                                        </div>
+
+                                        {currentFolder.palettes.map(pal => (
+                                            <div key={pal.id} className="bg-space-800 p-2 rounded border border-space-700 relative group hover:border-tech-500/50 transition-colors">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">{pal.name}</div>
+                                                    <button onClick={() => setLibrary(prev => prev.map(f => f.id === currentFolderId ? {...f, palettes: f.palettes.filter(p => p.id !== pal.id)} : f))} 
+                                                        className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Icons.Trash /></button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {pal.colors.map(c => (
+                                                        <button key={c} onClick={() => setColor(c)} className="w-4 h-4 rounded-sm border border-white/5 hover:scale-125 transition-transform" style={{background: c}} title={c} />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                     </div>
+                                )}
+                            </div>
+                        </aside>
+                    </div>
+
+                    <Modal 
+                        isOpen={modalConfig.isOpen} 
+                        title={modalConfig.type === 'resize' ? 'Custom Size' : modalConfig.type === 'confirm-resize' ? 'Resize Canvas' : modalConfig.type.includes('Palette') ? 'Palette Name' : modalConfig.type === 'newFolder' ? 'Folder Name' : 'Clear Canvas'} 
+                        onClose={closeModal} 
+                        onConfirm={handleModalConfirm}
+                        confirmText={modalConfig.type === 'clear' ? 'Clear' : 'Save'}
+                    >
+                        {modalConfig.type === 'resize' && (
+                            <div>
+                                <label className="block text-sm mb-1 text-tech-400 font-bold">Grid Size</label>
+                                <input type="number" min="1" className="w-full bg-space-900 border border-space-600 rounded px-3 py-2 text-white focus:border-tech-500 focus:outline-none" placeholder="e.g., 48" value={inputValue} onChange={e => setInputValue(e.target.value)} autoFocus />
+                            </div>
+                        )}
+                        {modalConfig.type === 'confirm-resize' && (
+                            <p className="text-sm">Resizing to <span className="text-tech-400 font-bold">{modalConfig.data}x{modalConfig.data}</span> will clear your current work. Continue?</p>
+                        )}
+                        {(modalConfig.type.includes('Palette') || modalConfig.type === 'newFolder') && (
+                            <div>
+                                <label className="block text-sm mb-1 text-tech-400 font-bold">Name</label>
+                                <input type="text" className="w-full bg-space-900 border border-space-600 rounded px-3 py-2 text-white focus:border-tech-500 focus:outline-none" placeholder="Enter name..." value={inputValue} onChange={e => setInputValue(e.target.value)} autoFocus />
+                            </div>
+                        )}
+                        {modalConfig.type === 'clear' && <p className="text-sm">Are you sure you want to clear the current layer?</p>}
+                    </Modal>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<PixelArtStudio />);
+    </script>
+</body>
+</html>
