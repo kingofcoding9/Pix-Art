@@ -302,8 +302,29 @@
 
             useEffect(() => {
                 const handleKeyDown = (e) => {
-                    if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
-                    if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+                    // Ignore if typing in an input
+                    if (e.target.tagName === 'INPUT') return;
+
+                    if (e.ctrlKey) {
+                        if (e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+                        if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+                        return;
+                    }
+
+                    // Tool Shortcuts
+                    switch(e.key.toLowerCase()) {
+                        case 'b': setTool('pencil'); break;
+                        case 'e': setTool('eraser'); break;
+                        case 'f': setTool('bucket'); break;
+                        case 'a': setTool('bucket_all'); break;
+                        case 'm': setTool('move_pixels'); break;
+                        case 'l': setTool('line'); break;
+                        case 'r': setTool('rect'); break;
+                        case 'c': setTool('circle'); break;
+                        case 'd': setTool('dither'); break;
+                        case 'i': setTool('dropper'); break;
+                        case 'h': setTool('lighten'); break;
+                    }
                 };
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
@@ -968,7 +989,7 @@
                                 { id: 'rect', icon: Icons.Rect, label: 'Rect', binding: 'R' },
                                 { id: 'circle', icon: Icons.Circle, label: 'Circle', binding: 'C' },
                                 { id: 'dither', icon: Icons.Dither, label: 'Dither', binding: 'D' },
-                                { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'Shift: Darken, Ctrl: Layer, Alt: Connected' },
+                                { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'H (Shift: Darken, Ctrl: Layer, Alt: Connected)' },
                                 { id: 'dropper', icon: Icons.EyeDropper, label: 'Picker', binding: 'I' },
                             ].map(t => (
                                 <button 
