@@ -241,8 +241,7 @@
 
         function PixelArtStudio() {
             // --- Helper to create a fresh project ---
-            // Changed: Pixels are now a sparse Object {} instead of a huge Array.
-            // This allows for massive coordinates (e.g., 90000x90000) without running out of RAM.
+            // Pixels are a sparse Object {}
             const createNewProjectData = (id, name = 'Untitled', size = 32) => ({
                 id,
                 name,
@@ -343,7 +342,12 @@
             const isPanning = useRef(false);
             const lastPos = useRef(null);
             const playInterval = useRef(null);
-            const startDrawPos = useRef(null); 
+            const startDrawPos = useRef(null);
+            
+            // --- NEW: Pending Pixel Buffer for Performance ---
+            // Stores pixels modified during the current stroke.
+            // These are drawn on top of the layer but NOT saved to project state until pointerUp.
+            const pendingPixels = useRef({});
 
             // Convenience getters
             const frames = currentProject.frames;
@@ -520,14 +524,44 @@
                 if(!canvas) return;
                 const ctx = canvas.getContext('2d');
                 
-                // Optimized: Removed scaling loop. Canvas size is now exactly gridSize.
-                // We rely on CSS scale for zooming to keep performance high.
-                
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                // Optimization: Removed O(N^2) checkerboard loop.
-                // The checkerboard is now a CSS background pattern on the container.
-                // This prevents freeze on 90,000x90,000 canvases.
+                // --- OPTIMIZATION: Viewport Culling ---
+                // Only loop through pixels that could possibly be visible.
+                // Since our data is a sparse object, we can't efficiently range-query without a spatial index.
+                // However, iterating Keys is O(N) of painted pixels. If we have 10k pixels painted, JS is fast enough to check 10k items.
+                // The bottleneck is canvas.fillRect. We must SKIP fillRect if outside bounds.
+                
+                const startX = Math.floor(-pan.x / zoom);
+                const startY = Math.floor(-pan.y / zoom);
+                const endX = startX + (containerRef.current.clientWidth / zoom);
+                const endY = startY + (containerRef.current.clientHeight / zoom);
+                // Expand bounds slightly to prevent clipping
+                const viewMinX = startX - 1;
+                const viewMinY = startY - 1;
+                const viewMaxX = endX + 1;
+                const viewMaxY = endY + 1;
+
+                const isVisible = (idx) => {
+                    const px = idx % gridSize;
+                    const py = Math.floor(idx / gridSize);
+                    return px >= viewMinX && px <= viewMaxX && py >= viewMinY && py <= viewMaxY;
+                };
+
+                // Helper to draw pixels (handles both Layer pixels and Pending pixels)
+                const drawPixelSet = (pixels) => {
+                     Object.keys(pixels).forEach(key => {
+                        const idx = parseInt(key);
+                        // Culling Check
+                        if (!isVisible(idx)) return; 
+                        
+                        const col = pixels[idx];
+                        if(col) {
+                            ctx.fillStyle = col;
+                            ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
+                        }
+                    });
+                };
 
                 // Onion Skin
                 if (onionSkin && currentFrameIndex > 0 && !isPlaying) {
@@ -535,15 +569,7 @@
                     ctx.globalAlpha = 0.5; 
                     prevFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
-                        // Iterate object keys (sparse)
-                        Object.keys(layer.pixels).forEach(key => {
-                            const idx = parseInt(key);
-                            const col = layer.pixels[idx];
-                            if(col) {
-                                ctx.fillStyle = col;
-                                ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
-                            }
-                        });
+                        drawPixelSet(layer.pixels);
                     });
                     ctx.globalAlpha = 1.0;
                 }
@@ -553,15 +579,12 @@
                     currentFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
                         ctx.globalAlpha = layer.opacity / 100;
-                        // Efficient Sparse Iteration: Only loop through pixels that exist
-                        Object.keys(layer.pixels).forEach(key => {
-                            const idx = parseInt(key);
-                            const col = layer.pixels[idx];
-                            if(col) {
-                                ctx.fillStyle = col;
-                                ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
-                            }
-                        });
+                        drawPixelSet(layer.pixels);
+                        
+                        // --- Draw Pending Pixels on top of Active Layer ---
+                        if (layer.id === activeLayerId && Object.keys(pendingPixels.current).length > 0) {
+                            drawPixelSet(pendingPixels.current);
+                        }
                     });
                 }
                 ctx.globalAlpha = 1.0;
@@ -575,6 +598,7 @@
                         if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x, y, 1, 1);
                     };
 
+                    // Line/Rect/Circle Previews (Direct calculation, committed on UP)
                     if (isDrawing.current && startDrawPos.current && ['line', 'rect', 'circle'].includes(tool)) {
                         const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
                         const x = hoverPos.x, y = hoverPos.y;
@@ -595,6 +619,7 @@
                              }
                         }
                     } else if (tool === 'pencil' || tool === 'eraser' || tool === 'lighten' || tool === 'dither' || tool === 'bucket' || tool === 'bucket_all') {
+                        // Brush cursor
                         for(let oy = -Math.floor(brushSize/2); oy <= Math.floor((brushSize-1)/2); oy++) {
                             for(let ox = -Math.floor(brushSize/2); ox <= Math.floor((brushSize-1)/2); ox++) {
                                 const px = hoverPos.x + ox, py = hoverPos.y + oy;
@@ -613,11 +638,11 @@
                     floatingSelection.pixels.forEach(p => {
                         const drawX = p.x + floatingSelection.offsetX;
                         const drawY = p.y + floatingSelection.offsetY;
-                        if (drawX >= 0 && drawX < gridSize && drawY >= 0 && drawY < gridSize) {
+                        if (drawX >= 0 && drawX < gridSize && drawY >= 0 && drawY < gridSize && isVisible(drawY*gridSize+drawX)) {
                             ctx.fillStyle = p.color;
                             ctx.fillRect(drawX, drawY, 1, 1);
                             ctx.strokeStyle = '#22d3ee';
-                            ctx.lineWidth = 0.1; // Thinner line for 1:1 scale
+                            ctx.lineWidth = 0.1; 
                             ctx.strokeRect(drawX, drawY, 1, 1);
                         }
                     });
@@ -635,7 +660,7 @@
                     ctx.stroke();
                 }
 
-            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos, panMode]);
+            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos, panMode, pendingPixels.current]);
 
             useEffect(() => { requestAnimationFrame(renderCanvas); }, [renderCanvas]);
 
@@ -674,12 +699,21 @@
             const handleModalConfirm = () => {
                 if (modalConfig.type === 'resize') {
                     const size = inputNumberValue;
-                    if(size && size > 0) resetCanvas(size);
+                    if(size && size > 0 && size <= 32000) {
+                        resetCanvas(size);
+                    } else if (size > 32000) {
+                        alert("Max canvas size is 32000 to prevent browser crash.");
+                        return;
+                    }
                 } else if (modalConfig.type === 'confirm-resize') {
                      resetCanvas(modalConfig.data);
                 } else if (modalConfig.type === 'newProject') {
                     const size = inputNumberValue;
                     if(size && size > 0 && inputValue) {
+                        if (size > 32000) {
+                            alert("Max canvas size is 32000 to prevent browser crash.");
+                            return;
+                        }
                         const newId = 'p' + Date.now();
                         const newProj = createNewProjectData(newId, inputValue, size);
                         setProjects([...projects, newProj]);
@@ -773,18 +807,20 @@
                 return `${color}${alpha}`;
             };
 
-            const plotPixel = (x, y, newPixels, colorToUse) => {
+            // Modified to write to a target Object (buffer or layer pixels)
+            const plotPixel = (x, y, targetPixels, colorToUse, layerPixelsForRead) => {
                 if(x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
                 const idx = y * gridSize + x;
-                // Object-based assignment
+                
+                // If it's the eraser, we are removing. In sparse map, we delete.
                 if (colorToUse === null) {
-                    delete newPixels[idx];
+                    targetPixels[idx] = null; // Mark for deletion or actually delete
                 } else {
-                    newPixels[idx] = colorToUse;
+                    targetPixels[idx] = colorToUse;
                 }
             };
 
-            const paint = (cx, cy, tempPixels) => {
+            const paint = (cx, cy, targetPixels, layerPixelsForRead) => {
                 const targets = [{x: cx, y: cy}];
                 if(mirrorMode.includes('x')) targets.push({x: gridSize - 1 - cx, y: cy});
                 if(mirrorMode.includes('y')) targets.push({x: cx, y: gridSize - 1 - cy});
@@ -796,7 +832,7 @@
                         for(let ox = -Math.floor(brushSize/2); ox <= Math.floor((brushSize-1)/2); ox++) {
                             const px = pt.x + ox, py = pt.y + oy;
                             if (tool === 'dither' && (px + py) % 2 !== 0) continue;
-                            plotPixel(px, py, tempPixels, drawColor);
+                            plotPixel(px, py, targetPixels, drawColor, layerPixelsForRead);
                         }
                     }
                 });
@@ -895,6 +931,7 @@
                     return;
                 }
 
+                // Bucket is instant, so we keep legacy behavior (immediate commit) but protect against huge fills
                 if (tool === 'bucket' || tool === 'bucket_all') {
                     const targetColor = activeLayer.pixels[y*gridSize+x];
                     const fillCol = getColorWithOpacity();
@@ -954,23 +991,26 @@
                 isDrawing.current = true;
                 lastPos.current = { x, y };
                 startDrawPos.current = { x, y };
+                // Clear pending buffer on start
+                pendingPixels.current = {};
 
+                // For immediate visual feedback on first click
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                const newPixels = {...activeLayer.pixels};
+                // For brushes:
                 if (tool === 'lighten') {
+                    // Lighten reads from existing, so we have to copy into pending.
+                    // Actually, modifying pending is easier. We read from activeLayer AND pending.
+                    // For simplicity, just read activeLayer, calculate result, store in pending.
                     const idx = y*gridSize+x;
-                    const existing = newPixels[idx];
+                    const existing = activeLayer.pixels[idx];
                     const isDarken = e.shiftKey || darkenMode;
-                    if(existing) newPixels[idx] = adjustBrightness(existing, isDarken ? -20 : 20);
+                    if(existing) pendingPixels.current[idx] = adjustBrightness(existing, isDarken ? -20 : 20);
                 } else {
-                    paint(x, y, newPixels);
+                    paint(x, y, pendingPixels.current, activeLayer.pixels);
                     if(tool !== 'eraser' && tool !== 'dither') addRecentColor(color);
                 }
-                
-                const newFrames = JSON.parse(JSON.stringify(frames));
-                newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
-                updateProject(activeProjectId, { frames: newFrames });
+                // Note: We do NOT call updateProject here.
             };
 
             const handlePointerMove = (e) => {
@@ -998,22 +1038,21 @@
 
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                const newPixels = {...activeLayer.pixels};
+                // Performance Optimization: Commit strokes to pendingPixels buffer instead of React state
                 getLinePoints(lastPos.current.x, lastPos.current.y, x, y).forEach(pt => {
                     if (tool === 'lighten') {
                         const idx = pt.y*gridSize+pt.x;
                         const isDarken = e.shiftKey || darkenMode;
-                        if(idx >= 0 && newPixels[idx]) {
-                            newPixels[idx] = adjustBrightness(newPixels[idx], isDarken ? -20 : 20);
+                        // Check active layer for base color
+                        const base = activeLayer.pixels[idx];
+                        if(idx >= 0 && base) {
+                             pendingPixels.current[idx] = adjustBrightness(base, isDarken ? -20 : 20);
                         }
                     } else {
-                        paint(pt.x, pt.y, newPixels);
+                        paint(pt.x, pt.y, pendingPixels.current, activeLayer.pixels);
                     }
                 });
                 
-                const newFrames = JSON.parse(JSON.stringify(frames));
-                newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
-                updateProject(activeProjectId, { frames: newFrames });
                 lastPos.current = { x, y };
             };
 
@@ -1038,34 +1077,51 @@
                     return;
                 }
 
+                // COMMIT STAGE
+                // Merge pending pixels into actual project state
                 const newFrames = JSON.parse(JSON.stringify(frames));
                 let newPixels = {...activeLayer.pixels};
 
+                // Apply pending buffer (Pencil/Eraser/Lighten)
+                if (Object.keys(pendingPixels.current).length > 0) {
+                     Object.entries(pendingPixels.current).forEach(([key, val]) => {
+                         if (val === null) delete newPixels[key];
+                         else newPixels[key] = val;
+                     });
+                     pendingPixels.current = {}; // Clear buffer
+                }
+
+                // Apply Shape Tools (Line/Rect/Circle) - they calculate on UP
                 if (['line', 'rect', 'circle'].includes(tool)) {
                    const { x, y } = getCoordinates(e);
                    const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
                    const drawColor = getColorWithOpacity();
+                   
+                   const tempPixels = {}; // Local buffer for shape
 
                    if (tool === 'line') {
-                       getLinePoints(x0, y0, x, y).forEach(pt => plotPixel(pt.x, pt.y, newPixels, drawColor));
+                       getLinePoints(x0, y0, x, y).forEach(pt => plotPixel(pt.x, pt.y, tempPixels, drawColor));
                    } else if (tool === 'rect') {
                         const rx = Math.min(x0, x), ry = Math.min(y0, y);
                         const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
-                        for(let i=rx; i<rx+rw; i++) { plotPixel(i, ry, newPixels, drawColor); plotPixel(i, ry+rh-1, newPixels, drawColor); }
-                        for(let i=ry; i<ry+rh; i++) { plotPixel(rx, i, newPixels, drawColor); plotPixel(rx+rw-1, i, newPixels, drawColor); }
+                        for(let i=rx; i<rx+rw; i++) { plotPixel(i, ry, tempPixels, drawColor); plotPixel(i, ry+rh-1, tempPixels, drawColor); }
+                        for(let i=ry; i<ry+rh; i++) { plotPixel(rx, i, tempPixels, drawColor); plotPixel(rx+rw-1, i, tempPixels, drawColor); }
                    } else if (tool === 'circle') {
                         const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
                          for(let cy=y0-r; cy<=y0+r; cy++) {
                              for(let cx=x0-r; cx<=x0+r; cx++) {
                                  const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
-                                 if (dist >= r - 0.5 && dist <= r + 0.5) plotPixel(cx, cy, newPixels, drawColor);
+                                 if (dist >= r - 0.5 && dist <= r + 0.5) plotPixel(cx, cy, tempPixels, drawColor);
                              }
                          }
                    }
                    addRecentColor(color);
-                   newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
+                   // Merge shape
+                   Object.entries(tempPixels).forEach(([key, val]) => newPixels[key] = val);
                 } 
                 
+                // Final save
+                newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
                 saveHistory(newFrames);
             };
 
@@ -1431,7 +1487,10 @@
                                             <div className="flex justify-between text-[10px] text-gray-400">
                                                 <span>SIZE</span><span>{brushSize}px</span>
                                             </div>
-                                            <input type="range" min="1" max="8" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                            <div className="flex gap-2">
+                                                <input type="range" min="1" max="500" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm self-center" />
+                                                <input type="number" min="1" max="500" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-12 bg-space-900 border border-space-600 rounded text-xs text-center text-white" />
+                                            </div>
                                         </div>
                                     )}
 
@@ -1550,7 +1609,10 @@
                                     <div className="flex-1 space-y-1 md:space-y-2 hidden md:block">
                                         <div>
                                             <div className="flex justify-between text-[10px] text-gray-400 mb-px"><span>SIZE</span><span>{brushSize}px</span></div>
-                                            <input type="range" min="1" max="8" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                            <div className="flex gap-2">
+                                                <input type="range" min="1" max="500" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm self-center" />
+                                                <input type="number" min="1" max="500" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-12 bg-space-900 border border-space-600 rounded text-xs text-center text-white" />
+                                            </div>
                                         </div>
                                         <div>
                                             <div className="flex justify-between text-[10px] text-gray-400 mb-px"><span>OPACITY</span><span>{toolOpacity}%</span></div>
