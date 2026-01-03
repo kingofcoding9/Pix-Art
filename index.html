@@ -287,6 +287,7 @@
             
             // Palette State
             const [editingPaletteId, setEditingPaletteId] = useState(null);
+            const [paletteConfig, setPaletteConfig] = useState({ img: null, count: 8 });
 
             const [floatingSelection, setFloatingSelection] = useState(null); 
             const [library, setLibrary] = useState(() => {
@@ -659,6 +660,40 @@
                     }));
                 } else if (modalConfig.type === 'imageImportOption') {
                      // Handled in specialized logic, but closes here
+                } else if (modalConfig.type === 'paletteImportOptions') {
+                    // Logic to extract prevalent colors based on config
+                    const { img, count } = paletteConfig;
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    // Downscale for performance
+                    const scale = Math.min(1, 256 / Math.max(img.width, img.height));
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                    const colorCounts = {};
+                    
+                    for(let i=0; i<data.length; i+=4) {
+                        if(data[i+3] > 10) { // Transparency check
+                            const hex = rgbToHex(data[i], data[i+1], data[i+2]);
+                            colorCounts[hex] = (colorCounts[hex] || 0) + 1;
+                        }
+                    }
+                    
+                    // Sort by frequency
+                    const sortedColors = Object.entries(colorCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(entry => entry[0])
+                        .slice(0, count);
+                    
+                    if(sortedColors.length > 0) {
+                        openModal('newPalette', sortedColors); // Open naming modal
+                    } else {
+                        // Just in case no colors found
+                        closeModal();
+                    }
+                    return; // Early return because newPalette will handle the closure/next step
                 }
                 closeModal();
             };
@@ -1077,33 +1112,8 @@
                 reader.onload = (evt) => {
                     const img = new Image();
                     img.onload = () => {
-                        // Extract colors
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
-                        // Limit size to avoid freezing
-                        const scale = Math.min(1, 256 / Math.max(img.width, img.height));
-                        canvas.width = img.width * scale;
-                        canvas.height = img.height * scale;
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                        const colors = new Set();
-                        
-                        for(let i=0; i<data.length; i+=4) {
-                            if(data[i+3] > 10) { // Transparency
-                                const hex = rgbToHex(data[i], data[i+1], data[i+2]);
-                                colors.add(hex);
-                                if(colors.size > 256) break; // Hard limit
-                            }
-                        }
-                        
-                        // Sort by luminance or just take first N? Let's just take unique.
-                        // Filter to max 64 to keep it sane
-                        const sortedColors = Array.from(colors).slice(0, 64);
-                        
-                        if(sortedColors.length > 0) {
-                            openModal('newPalette', sortedColors); 
-                        }
+                        setPaletteConfig({ img, count: 8 });
+                        openModal('paletteImportOptions');
                     };
                     img.src = evt.target.result;
                 };
@@ -1612,9 +1622,10 @@
                             modalConfig.type === 'confirm-resize' ? 'New Project' : 
                             modalConfig.type === 'clear' ? 'Clear Layer' : 
                             modalConfig.type === 'imageImportOption' ? 'Import Image' :
+                            modalConfig.type === 'paletteImportOptions' ? 'Palette Config' :
                             'Enter Name'
                         } onClose={closeModal} onConfirm={handleModalConfirm}
-                        showConfirm={modalConfig.type !== 'imageImportOption'}>
+                        showConfirm={modalConfig.type !== 'imageImportOption' && modalConfig.type !== 'paletteImportOptions'}>
                             {modalConfig.type === 'imageImportOption' ? (
                                 <div className="space-y-4">
                                     <div className="aspect-square bg-space-900 rounded-lg flex items-center justify-center overflow-hidden border border-space-700">
@@ -1630,6 +1641,23 @@
                                             <div className="text-[10px] text-gray-400">Draw into active layer</div>
                                         </button>
                                     </div>
+                                </div>
+                            ) : modalConfig.type === 'paletteImportOptions' ? (
+                                <div className="space-y-4">
+                                    <div className="aspect-video bg-space-900 rounded-lg flex items-center justify-center overflow-hidden border border-space-700 relative">
+                                        {paletteConfig.img && <img src={paletteConfig.img.src} alt="Preview" className="max-w-full max-h-full object-contain" />}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center text-xs text-gray-400 font-bold">
+                                            <span>MAX COLORS</span>
+                                            <span className="text-tech-400">{paletteConfig.count}</span>
+                                        </div>
+                                        <input type="range" min="1" max="64" value={paletteConfig.count} onChange={e => setPaletteConfig({...paletteConfig, count: parseInt(e.target.value)})} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                        <div className="text-[10px] text-gray-500 text-center pt-1">
+                                            Scans image for the most prevalent colors.
+                                        </div>
+                                    </div>
+                                    <button onClick={handleModalConfirm} className="w-full py-2 bg-gradient-to-r from-tech-500 to-blue-600 hover:from-tech-400 hover:to-blue-500 text-white rounded font-bold shadow-[0_0_15px_rgba(34,211,238,0.3)]">Generate Palette</button>
                                 </div>
                             ) : modalConfig.type === 'confirm-resize' || modalConfig.type === 'clear' ? (
                                 <p className="text-sm">Are you sure? Unsaved changes will be lost.</p>
