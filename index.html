@@ -309,6 +309,23 @@
             const currentFrame = frames[currentFrameIndex] || frames[0];
             const activeLayer = currentFrame.layers.find(l => l.id === activeLayerId) || currentFrame.layers[0];
 
+            // Tools Definition
+            const TOOLS = [
+                { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B', desc: 'Draw standard pixels' },
+                { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E', desc: 'Clear pixels from layer' },
+                { id: 'dropper', icon: Icons.EyeDropper, label: 'Picker', binding: 'I', desc: 'Click to sample color' },
+                { id: 'bucket', icon: Icons.Bucket, label: 'Fill', binding: 'F', desc: 'Fill connected area' },
+                { id: 'bucket_all', icon: Icons.BucketAll, label: 'Paint All', binding: 'A', desc: 'Replace color on whole layer' },
+                { id: 'move_pixels', icon: Icons.MovePixels, label: 'Move', binding: 'M', desc: 'Move contents of layer' },
+                { id: 'line', icon: Icons.Line, label: 'Line', binding: 'L', desc: 'Draw straight lines' },
+                { id: 'rect', icon: Icons.Rect, label: 'Rect', binding: 'R', desc: 'Draw outlined rectangles' },
+                { id: 'circle', icon: Icons.Circle, label: 'Circle', binding: 'C', desc: 'Draw outlined circles' },
+                { id: 'dither', icon: Icons.Dither, label: 'Dither', binding: 'D', desc: 'Checkered pattern brush' },
+                { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'H', desc: 'Shift: Darken' },
+            ];
+
+            const currentToolDef = TOOLS.find(t => t.id === tool);
+
             // --- Effects ---
             useEffect(() => {
                 localStorage.setItem('pixStudioProjects', JSON.stringify(projects));
@@ -403,10 +420,19 @@
             }, []);
 
             useEffect(() => {
-                fitToScreen();
+                // Ensure layout is ready
+                const timer = setTimeout(fitToScreen, 100);
                 window.addEventListener('resize', fitToScreen);
-                return () => window.removeEventListener('resize', fitToScreen);
+                return () => {
+                    clearTimeout(timer);
+                    window.removeEventListener('resize', fitToScreen);
+                }
             }, [fitToScreen]);
+
+            // Re-fit when panel state changes (adjusts available space)
+            useEffect(() => {
+                fitToScreen();
+            }, [isMobilePanelOpen, fitToScreen]);
 
 
             // --- Core Helper to Update Project State ---
@@ -702,7 +728,6 @@
             const handlePointerDown = (e) => {
                 if (activeTab === 'animate' && isPlaying) setIsPlaying(false);
                 
-                // Allow panning if panMode (mobile toggle) is on, OR middle mouse, OR Shift key
                 if (panMode || e.button === 1 || (e.shiftKey && tool !== 'lighten')) {
                     e.preventDefault();
                     isPanning.current = true;
@@ -806,7 +831,6 @@
                 if (tool === 'lighten') {
                     const idx = y*gridSize+x;
                     const existing = newPixels[idx];
-                    // Shift key OR darkenMode toggle determines direction
                     const isDarken = e.shiftKey || darkenMode;
                     if(existing) newPixels[idx] = adjustBrightness(existing, isDarken ? -20 : 20);
                 } else {
@@ -1175,23 +1199,20 @@
                             </button>
                             <div className="md:hidden w-px h-6 bg-space-700 flex-shrink-0"></div>
 
-                            {[
-                                { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B' },
-                                { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E' },
-                                { id: 'dropper', icon: Icons.EyeDropper, label: 'Picker', binding: 'I' }, // Moved here
-                                { id: 'bucket', icon: Icons.Bucket, label: 'Fill', binding: 'F' },
-                                { id: 'bucket_all', icon: Icons.BucketAll, label: 'Paint All', binding: 'A' },
-                                { id: 'move_pixels', icon: Icons.MovePixels, label: 'Move', binding: 'M' },
-                                { id: 'line', icon: Icons.Line, label: 'Line', binding: 'L' },
-                                { id: 'rect', icon: Icons.Rect, label: 'Rect', binding: 'R' },
-                                { id: 'circle', icon: Icons.Circle, label: 'Circle', binding: 'C' },
-                                { id: 'dither', icon: Icons.Dither, label: 'Dither', binding: 'D' },
-                                { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'H' },
-                            ].map(t => (
+                            {TOOLS.map(t => (
                                 <button 
                                     key={t.id} 
                                     onClick={() => setTool(t.id)} 
-                                    onMouseEnter={(e) => window.innerWidth > 768 && setTooltip({text: `${t.label} (${t.binding})`, top: e.currentTarget.getBoundingClientRect().top, left: e.currentTarget.getBoundingClientRect().right + 10})}
+                                    onMouseEnter={(e) => window.innerWidth > 768 && setTooltip({
+                                        text: (
+                                            <div>
+                                                <span className="font-bold">{t.label}</span> <span className="opacity-70">({t.binding})</span>
+                                                <div className="text-[10px] opacity-80 mt-1 font-normal">{t.desc}</div>
+                                            </div>
+                                        ),
+                                        top: e.currentTarget.getBoundingClientRect().top, 
+                                        left: e.currentTarget.getBoundingClientRect().right + 10
+                                    })}
                                     onMouseLeave={() => setTooltip(null)}
                                     className={`flex-shrink-0 p-2 md:p-3 rounded-xl transition-all relative group ${tool===t.id ? 'bg-tech-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] md:scale-110' : 'text-gray-400 hover:bg-space-700 hover:text-tech-400'}`}>
                                     <t.icon />
@@ -1214,7 +1235,10 @@
                         {isMobileToolOptionsOpen && (
                             <div className="absolute top-14 left-2 right-2 z-40 bg-space-800 border border-tech-glow rounded-xl p-3 flex flex-col gap-2 shadow-2xl md:hidden">
                                 <div className="flex justify-between items-center border-b border-space-700 pb-2 mb-1">
-                                    <span className="text-xs font-bold text-tech-400 uppercase">Tool Options</span>
+                                    <span className="text-xs font-bold text-tech-400 uppercase flex items-center gap-2">
+                                        {currentToolDef?.icon && <currentToolDef.icon />}
+                                        {currentToolDef?.label} Options
+                                    </span>
                                     <button onClick={() => setIsMobileToolOptionsOpen(false)}><Icons.Close /></button>
                                 </div>
                                 
@@ -1233,6 +1257,13 @@
                                         <button onClick={() => setDarkenMode(!darkenMode)} className={`w-10 h-5 rounded-full relative transition-colors ${darkenMode ? 'bg-purple-500' : 'bg-yellow-500'}`}>
                                             <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${darkenMode ? 'left-6' : 'left-1'}`}></div>
                                         </button>
+                                    </div>
+                                )}
+
+                                {/* Generic Tool Description if no specific options */}
+                                {tool !== 'lighten' && (
+                                    <div className="text-[10px] text-gray-500 italic mt-1 border-t border-space-700 pt-2">
+                                        {currentToolDef?.desc || "No extra options for this tool."}
                                     </div>
                                 )}
                             </div>
@@ -1486,7 +1517,7 @@
 
                     {/* Tooltip Overlay */}
                     {tooltip && (
-                        <div className="fixed z-50 bg-space-800 text-tech-400 text-xs px-2 py-1 rounded border border-tech-500/30 shadow-lg pointer-events-none" 
+                        <div className="fixed z-[70] bg-space-800 text-tech-400 text-xs px-3 py-2 rounded-lg border border-tech-500/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] pointer-events-none backdrop-blur-md" 
                              style={{top: tooltip.top, left: tooltip.left}}>
                             {tooltip.text}
                         </div>
