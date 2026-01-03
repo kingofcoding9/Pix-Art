@@ -183,7 +183,8 @@
             File: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>,
             Image: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
             ChevronUp: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>,
-            ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
+            Gear: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         };
 
         const rgbToHex = (r, g, b) => "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
@@ -203,7 +204,7 @@
         const Modal = ({ isOpen, title, children, onClose, onConfirm, showConfirm = true, confirmText = 'OK' }) => {
             if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm">
                     <div className="bg-space-800 rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.2)] border border-tech-glow w-full max-w-sm p-6 transform transition-all m-4">
                         <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
                             <h3 className="text-lg font-bold text-tech-400 tracking-wider uppercase">{title}</h3>
@@ -277,6 +278,9 @@
             
             // Mobile UI State
             const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
+            const [isMobileToolOptionsOpen, setIsMobileToolOptionsOpen] = useState(false);
+            const [panMode, setPanMode] = useState(false); // For mobile manual panning
+            const [darkenMode, setDarkenMode] = useState(false); // For lighten/darken tool on mobile
             
             const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', data: null });
             const [inputValue, setInputValue] = useState('');
@@ -376,19 +380,26 @@
                 const scaleW = availableW / baseSize;
                 const scaleH = availableH / baseSize;
                 
-                // Use smaller scale to fit both dims, clamp between 0.1 and 1.5 (allow slight zoom in on big screens)
+                // Use smaller scale to fit both dims, clamp between 0.1 and 1.5 
                 let newZoom = Math.min(scaleW, scaleH);
                 
-                // If on desktop and plenty of space, default to 1, but don't force it if space is huge.
                 if (window.innerWidth >= 768) {
                     newZoom = Math.min(newZoom, 1);
                 } else {
-                     // On mobile, allow it to shrink as needed
                      newZoom = Math.max(newZoom, 0.1); 
                 }
 
                 setZoom(newZoom);
-                setPan({x: 0, y: 0});
+                
+                // Center the canvas logic
+                // Since transform-origin is 0 0, we need to pan it to center
+                // Visual width = 512 * newZoom
+                const visualW = 512 * newZoom;
+                const visualH = 512 * newZoom;
+                const offsetX = (width - visualW) / 2;
+                const offsetY = (height - visualH) / 2;
+                
+                setPan({x: offsetX, y: offsetY});
             }, []);
 
             useEffect(() => {
@@ -487,7 +498,7 @@
                 ctx.globalAlpha = 1.0;
 
                 // Tool Previews
-                if (hoverPos && !isPanning.current && !isPlaying) {
+                if (hoverPos && !isPanning.current && !isPlaying && !panMode) {
                     ctx.globalAlpha = 0.4;
                     ctx.fillStyle = getColorWithOpacity();
                     
@@ -555,7 +566,7 @@
                     ctx.stroke();
                 }
 
-            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos]);
+            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos, panMode]);
 
             useEffect(() => { requestAnimationFrame(renderCanvas); }, [renderCanvas]);
 
@@ -691,7 +702,8 @@
             const handlePointerDown = (e) => {
                 if (activeTab === 'animate' && isPlaying) setIsPlaying(false);
                 
-                if (e.button === 1 || (e.shiftKey && tool !== 'lighten')) {
+                // Allow panning if panMode (mobile toggle) is on, OR middle mouse, OR Shift key
+                if (panMode || e.button === 1 || (e.shiftKey && tool !== 'lighten')) {
                     e.preventDefault();
                     isPanning.current = true;
                     lastPos.current = { x: e.clientX || e.touches[0].clientX, y: e.clientY || e.touches[0].clientY };
@@ -794,7 +806,9 @@
                 if (tool === 'lighten') {
                     const idx = y*gridSize+x;
                     const existing = newPixels[idx];
-                    if(existing) newPixels[idx] = adjustBrightness(existing, e.shiftKey ? -20 : 20);
+                    // Shift key OR darkenMode toggle determines direction
+                    const isDarken = e.shiftKey || darkenMode;
+                    if(existing) newPixels[idx] = adjustBrightness(existing, isDarken ? -20 : 20);
                 } else {
                     paint(x, y, newPixels);
                     if(tool !== 'eraser' && tool !== 'dither') addRecentColor(color);
@@ -834,8 +848,9 @@
                 getLinePoints(lastPos.current.x, lastPos.current.y, x, y).forEach(pt => {
                     if (tool === 'lighten') {
                         const idx = pt.y*gridSize+pt.x;
+                        const isDarken = e.shiftKey || darkenMode;
                         if(idx >= 0 && idx < newPixels.length && newPixels[idx]) {
-                            newPixels[idx] = adjustBrightness(newPixels[idx], e.shiftKey ? -20 : 20);
+                            newPixels[idx] = adjustBrightness(newPixels[idx], isDarken ? -20 : 20);
                         }
                     } else {
                         paint(pt.x, pt.y, newPixels);
@@ -1153,6 +1168,13 @@
                     <div className="flex flex-col md:flex-row flex-1 overflow-hidden p-2 gap-2 pt-0 z-10 relative min-h-0">
                         {/* Tools Toolbar - Mobile: Top Scrollable / Desktop: Left Vertical */}
                         <aside className="w-full md:w-16 h-12 md:h-auto glass-panel rounded-xl flex flex-row md:flex-col items-center py-2 md:py-4 px-2 md:px-0 gap-3 z-20 overflow-x-auto md:overflow-y-auto hide-scrollbar relative shrink-0 order-1">
+                            
+                            {/* Mobile Tool Settings Toggle */}
+                            <button className="md:hidden flex-shrink-0 p-2 rounded-xl transition-all relative text-tech-400 hover:bg-space-700" onClick={() => setIsMobileToolOptionsOpen(!isMobileToolOptionsOpen)}>
+                                <Icons.Gear />
+                            </button>
+                            <div className="md:hidden w-px h-6 bg-space-700 flex-shrink-0"></div>
+
                             {[
                                 { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B' },
                                 { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E' },
@@ -1188,6 +1210,34 @@
                              <button onClick={() => openModal('clear')} className="text-red-400 hover:bg-red-900/30 p-2 rounded transition-colors flex-shrink-0"><Icons.Trash /></button>
                         </aside>
 
+                        {/* Mobile Tool Options Panel */}
+                        {isMobileToolOptionsOpen && (
+                            <div className="absolute top-14 left-2 right-2 z-40 bg-space-800 border border-tech-glow rounded-xl p-3 flex flex-col gap-2 shadow-2xl md:hidden">
+                                <div className="flex justify-between items-center border-b border-space-700 pb-2 mb-1">
+                                    <span className="text-xs font-bold text-tech-400 uppercase">Tool Options</span>
+                                    <button onClick={() => setIsMobileToolOptionsOpen(false)}><Icons.Close /></button>
+                                </div>
+                                
+                                {/* Pan Mode Toggle */}
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-300">Pan Mode (Drag)</span>
+                                    <button onClick={() => setPanMode(!panMode)} className={`w-10 h-5 rounded-full relative transition-colors ${panMode ? 'bg-tech-500' : 'bg-space-600'}`}>
+                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${panMode ? 'left-6' : 'left-1'}`}></div>
+                                    </button>
+                                </div>
+
+                                {/* Lighten/Darken Toggle - Only show for Lighten tool */}
+                                {tool === 'lighten' && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-gray-300">Mode: {darkenMode ? 'Darken' : 'Lighten'}</span>
+                                        <button onClick={() => setDarkenMode(!darkenMode)} className={`w-10 h-5 rounded-full relative transition-colors ${darkenMode ? 'bg-purple-500' : 'bg-yellow-500'}`}>
+                                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${darkenMode ? 'left-6' : 'left-1'}`}></div>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Main Canvas Area */}
                         <main className="flex-1 relative overflow-hidden rounded-xl border border-space-700 bg-space-900/30 backdrop-blur-sm order-2 md:order-2 canvas-touch-area min-h-0" 
                             onPointerDown={handlePointerDown} 
@@ -1200,20 +1250,20 @@
                             </div>
 
                             <div ref={containerRef} className="absolute w-full h-full overflow-hidden flex items-center justify-center touch-none">
-                                <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-space-800" 
+                                <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-space-800 flex-shrink-0" 
                                     style={{
                                         transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, 
                                         transformOrigin: '0 0',
                                         width: 512, height: 512,
                                         imageRendering: 'pixelated',
-                                        cursor: isPanning.current ? 'grabbing' : 'crosshair',
+                                        cursor: isPanning.current || panMode ? 'grabbing' : 'crosshair',
                                         boxShadow: '0 0 0 1px rgba(255,255,255,0.1)'
                                     }}>
                                     <canvas ref={canvasRef} width={gridSize*10} height={gridSize*10} className="w-full h-full block" />
                                 </div>
                             </div>
 
-                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20" style={{bottom: isMobilePanelOpen ? '50vh' : '3rem', transition: 'bottom 0.3s'}}>
+                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20" style={{bottom: isMobilePanelOpen ? '65vh' : '3rem', transition: 'bottom 0.3s'}}>
                                 <span className="opacity-70">COORD: {hoverPos ? `${hoverPos.x},${hoverPos.y}` : '-,-'}</span>
                                 <span className="w-px h-3 bg-space-600"></span>
                                 <span>{gridSize}x{gridSize}</span>
@@ -1229,7 +1279,7 @@
 
                         {/* Right Panel - Mobile: Collapsible Drawer / Desktop: Right Side */}
                         <aside className={`fixed bottom-0 left-0 right-0 z-30 flex flex-col glass-panel transition-all duration-300 md:relative md:w-72 md:h-auto md:z-10 md:order-3 md:rounded-xl md:bg-opacity-100 md:translate-y-0
-                            ${isMobilePanelOpen ? 'h-[50vh] rounded-t-xl' : 'h-6 rounded-t-xl md:h-auto'}`}>
+                            ${isMobilePanelOpen ? 'h-[65vh] rounded-t-xl' : 'h-6 rounded-t-xl md:h-auto'}`}>
                             
                             {/* Drawer Toggle Handle (Mobile Only) */}
                             <div className="md:hidden flex justify-center items-center h-6 w-full cursor-pointer bg-space-800/80 hover:bg-space-700/80 rounded-t-xl border-t border-x border-tech-glow/30" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
