@@ -268,7 +268,7 @@
             
             const [isPlaying, setIsPlaying] = useState(false);
             const [onionSkin, setOnionSkin] = useState(false);
-            const [zoom, setZoom] = useState(1);
+            const [zoom, setZoom] = useState(0.8);
             const [pan, setPan] = useState({ x: 0, y: 0 });
             const [showGrid, setShowGrid] = useState(true);
             const [activeTab, setActiveTab] = useState('layers');
@@ -362,6 +362,41 @@
                 } else clearInterval(playInterval.current);
                 return () => clearInterval(playInterval.current);
             }, [isPlaying, currentProject.fps, frames.length]);
+
+            // --- Auto-Fit Canvas to Screen ---
+            const fitToScreen = useCallback(() => {
+                if (!containerRef.current) return;
+                const { width, height } = containerRef.current.getBoundingClientRect();
+                const padding = 40; // Space for margins
+                const availableW = width - padding;
+                const availableH = height - padding;
+                const baseSize = 512; // Base logical size of canvas wrapper
+                
+                // Calculate zoom needed to fit the baseSize into available space
+                const scaleW = availableW / baseSize;
+                const scaleH = availableH / baseSize;
+                
+                // Use smaller scale to fit both dims, clamp between 0.1 and 1.5 (allow slight zoom in on big screens)
+                let newZoom = Math.min(scaleW, scaleH);
+                
+                // If on desktop and plenty of space, default to 1, but don't force it if space is huge.
+                if (window.innerWidth >= 768) {
+                    newZoom = Math.min(newZoom, 1);
+                } else {
+                     // On mobile, allow it to shrink as needed
+                     newZoom = Math.max(newZoom, 0.1); 
+                }
+
+                setZoom(newZoom);
+                setPan({x: 0, y: 0});
+            }, []);
+
+            useEffect(() => {
+                fitToScreen();
+                window.addEventListener('resize', fitToScreen);
+                return () => window.removeEventListener('resize', fitToScreen);
+            }, [fitToScreen]);
+
 
             // --- Core Helper to Update Project State ---
             const updateProject = (pid, changes) => {
@@ -543,8 +578,7 @@
                 });
                 setCurrentFrameIndex(0);
                 setActiveLayerId('l1');
-                setZoom(1);
-                setPan({x: 0, y: 0});
+                fitToScreen(); // Fit on reset
             };
 
             const openModal = (type, data = null) => { setInputValue(''); setModalConfig({ isOpen: true, type, data }); };
@@ -646,7 +680,7 @@
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
                 const delta = -Math.sign(e.deltaY) * 0.5;
-                const newZoom = Math.min(Math.max(1, zoom + delta), 40);
+                const newZoom = Math.min(Math.max(0.1, zoom + delta), 40); // Allow zoom < 1
                 const scaleFactor = newZoom / zoom;
                 const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
                 const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
@@ -918,6 +952,7 @@
                 setActiveProjectId(newId);
                 // Reset view state
                 setZoom(1); setPan({x:0,y:0}); setCurrentFrameIndex(0);
+                fitToScreen();
             };
 
             const closeProject = (e, pid) => {
@@ -1178,13 +1213,13 @@
                                 </div>
                             </div>
 
-                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20" style={{bottom: isMobilePanelOpen ? '50vh' : '4rem', transition: 'bottom 0.3s'}}>
+                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20" style={{bottom: isMobilePanelOpen ? '50vh' : '3rem', transition: 'bottom 0.3s'}}>
                                 <span className="opacity-70">COORD: {hoverPos ? `${hoverPos.x},${hoverPos.y}` : '-,-'}</span>
                                 <span className="w-px h-3 bg-space-600"></span>
                                 <span>{gridSize}x{gridSize}</span>
                                 <span className="w-px h-3 bg-space-600 hidden md:block"></span>
                                 <span className="hidden md:block">{Math.round(zoom*100)}%</span>
-                                <button onClick={() => {setZoom(1); setPan({x:0,y:0})}} className="pointer-events-auto hover:text-white hover:scale-110 transition-transform" title="Recenter"><Icons.Center /></button>
+                                <button onClick={() => {fitToScreen();}} className="pointer-events-auto hover:text-white hover:scale-110 transition-transform" title="Fit to Screen"><Icons.Center /></button>
                             </div>
                             
                             <div className="absolute bottom-3 right-4 text-[10px] text-gray-500 font-mono opacity-50 pointer-events-none hidden md:block">
@@ -1194,11 +1229,11 @@
 
                         {/* Right Panel - Mobile: Collapsible Drawer / Desktop: Right Side */}
                         <aside className={`fixed bottom-0 left-0 right-0 z-30 flex flex-col glass-panel transition-all duration-300 md:relative md:w-72 md:h-auto md:z-10 md:order-3 md:rounded-xl md:bg-opacity-100 md:translate-y-0
-                            ${isMobilePanelOpen ? 'h-[50vh] rounded-t-xl' : 'h-10 rounded-t-xl md:h-auto'}`}>
+                            ${isMobilePanelOpen ? 'h-[50vh] rounded-t-xl' : 'h-6 rounded-t-xl md:h-auto'}`}>
                             
                             {/* Drawer Toggle Handle (Mobile Only) */}
-                            <div className="md:hidden flex justify-center items-center h-4 w-full cursor-pointer bg-space-800/50 rounded-t-xl" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
-                                {isMobilePanelOpen ? <div className="w-8 h-1 bg-gray-600 rounded-full"></div> : <div className="w-8 h-1 bg-gray-500 rounded-full"></div>}
+                            <div className="md:hidden flex justify-center items-center h-6 w-full cursor-pointer bg-space-800/80 hover:bg-space-700/80 rounded-t-xl border-t border-x border-tech-glow/30" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
+                                {isMobilePanelOpen ? <Icons.ChevronDown /> : <Icons.ChevronUp />}
                             </div>
 
                             {/* Color & Brush Settings - Hidden when mobile drawer collapsed */}
@@ -1229,7 +1264,7 @@
                             </div>
 
                             {/* Tabs (Layers/Animate/Library) */}
-                            <div className="flex text-[10px] md:text-xs font-bold border-b border-space-700 uppercase tracking-wider h-10 md:h-auto shrink-0 bg-space-800 md:bg-transparent">
+                            <div className={`flex text-[10px] md:text-xs font-bold border-b border-space-700 uppercase tracking-wider h-10 md:h-auto shrink-0 bg-space-800 md:bg-transparent ${!isMobilePanelOpen ? 'hidden md:flex' : 'flex'}`}>
                                 {['layers', 'animate', 'library'].map(tab => (
                                     <button key={tab} onClick={() => handleTabClick(tab)} 
                                         className={`flex-1 flex items-center justify-center transition-colors ${activeTab===tab ? 'text-tech-400 border-b-2 border-tech-400 bg-space-800/50' : 'text-gray-500 hover:text-white hover:bg-space-800/30'}`}>
