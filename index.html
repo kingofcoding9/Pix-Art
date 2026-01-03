@@ -82,6 +82,18 @@
         
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Canvas Checkerboard Background handled via CSS for performance on large canvases */
+        .canvas-bg-checkers {
+            background-color: #1e293b;
+            background-image: 
+                linear-gradient(45deg, #334155 25%, transparent 25%), 
+                linear-gradient(-45deg, #334155 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #334155 75%), 
+                linear-gradient(-45deg, transparent 75%, #334155 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
     </style>
 </head>
 <body class="text-slate-300">
@@ -229,11 +241,13 @@
 
         function PixelArtStudio() {
             // --- Helper to create a fresh project ---
+            // Changed: Pixels are now a sparse Object {} instead of a huge Array.
+            // This allows for massive coordinates (e.g., 90000x90000) without running out of RAM.
             const createNewProjectData = (id, name = 'Untitled', size = 32) => ({
                 id,
                 name,
                 gridSize: size,
-                frames: [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: Array(size*size).fill(null) }] }],
+                frames: [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: {} }] }],
                 fps: 8,
                 history: [],
                 historyIndex: -1
@@ -245,6 +259,20 @@
                 if (saved) {
                     try {
                         const parsed = JSON.parse(saved);
+                        // Convert old array-based pixels to object-based if loading from old save
+                        parsed.forEach(p => {
+                            p.frames.forEach(f => {
+                                f.layers.forEach(l => {
+                                    if (Array.isArray(l.pixels)) {
+                                        const sparse = {};
+                                        l.pixels.forEach((col, idx) => {
+                                            if (col) sparse[idx] = col;
+                                        });
+                                        l.pixels = sparse;
+                                    }
+                                });
+                            });
+                        });
                         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
                     } catch(e) {}
                 }
@@ -437,6 +465,13 @@
 
             useEffect(() => fitToScreen(), [isMobilePanelOpen, fitToScreen]);
 
+            // Fix for "Center on Create": Trigger fitToScreen when the project ID or grid size changes
+            useEffect(() => {
+                // Small timeout to ensure DOM has updated with new canvas size
+                const t = setTimeout(fitToScreen, 10);
+                return () => clearTimeout(t);
+            }, [activeProjectId, gridSize, fitToScreen]);
+
 
             // --- Core Helper to Update Project State ---
             const updateProject = (pid, changes) => {
@@ -484,16 +519,15 @@
                 const canvas = canvasRef.current;
                 if(!canvas) return;
                 const ctx = canvas.getContext('2d');
-                const pSize = canvas.width / gridSize;
+                
+                // Optimized: Removed scaling loop. Canvas size is now exactly gridSize.
+                // We rely on CSS scale for zooming to keep performance high.
+                
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                // Checkerboard
-                for(let y=0; y<gridSize; y++) {
-                    for(let x=0; x<gridSize; x++) {
-                        ctx.fillStyle = (x+y)%2 === 0 ? '#1e293b' : '#334155';
-                        ctx.fillRect(x*pSize, y*pSize, pSize, pSize);
-                    }
-                }
+                // Optimization: Removed O(N^2) checkerboard loop.
+                // The checkerboard is now a CSS background pattern on the container.
+                // This prevents freeze on 90,000x90,000 canvases.
 
                 // Onion Skin
                 if (onionSkin && currentFrameIndex > 0 && !isPlaying) {
@@ -501,10 +535,13 @@
                     ctx.globalAlpha = 0.5; 
                     prevFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
-                        layer.pixels.forEach((col, i) => {
+                        // Iterate object keys (sparse)
+                        Object.keys(layer.pixels).forEach(key => {
+                            const idx = parseInt(key);
+                            const col = layer.pixels[idx];
                             if(col) {
                                 ctx.fillStyle = col;
-                                ctx.fillRect((i%gridSize)*pSize, Math.floor(i/gridSize)*pSize, pSize, pSize);
+                                ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
                             }
                         });
                     });
@@ -516,10 +553,13 @@
                     currentFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
                         ctx.globalAlpha = layer.opacity / 100;
-                        layer.pixels.forEach((col, i) => {
-                            if (col) {
+                        // Efficient Sparse Iteration: Only loop through pixels that exist
+                        Object.keys(layer.pixels).forEach(key => {
+                            const idx = parseInt(key);
+                            const col = layer.pixels[idx];
+                            if(col) {
                                 ctx.fillStyle = col;
-                                ctx.fillRect((i % gridSize) * pSize, Math.floor(i / gridSize) * pSize, pSize, pSize);
+                                ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
                             }
                         });
                     });
@@ -532,7 +572,7 @@
                     ctx.fillStyle = getColorWithOpacity();
                     
                     const drawPreviewPixel = (x, y) => {
-                        if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x*pSize, y*pSize, pSize, pSize);
+                        if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x, y, 1, 1);
                     };
 
                     if (isDrawing.current && startDrawPos.current && ['line', 'rect', 'circle'].includes(tool)) {
@@ -575,22 +615,22 @@
                         const drawY = p.y + floatingSelection.offsetY;
                         if (drawX >= 0 && drawX < gridSize && drawY >= 0 && drawY < gridSize) {
                             ctx.fillStyle = p.color;
-                            ctx.fillRect(drawX * pSize, drawY * pSize, pSize, pSize);
+                            ctx.fillRect(drawX, drawY, 1, 1);
                             ctx.strokeStyle = '#22d3ee';
-                            ctx.lineWidth = 2;
-                            ctx.strokeRect(drawX * pSize, drawY * pSize, pSize, pSize);
+                            ctx.lineWidth = 0.1; // Thinner line for 1:1 scale
+                            ctx.strokeRect(drawX, drawY, 1, 1);
                         }
                     });
                 }
 
-                // Grid Lines
-                if (showGrid && zoom > 4) {
+                // Grid Lines - Optimization: Only draw if zoom is high enough to matter, and canvas isn't massive
+                if (showGrid && zoom > 15 && gridSize < 256) {
                     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                    ctx.lineWidth = 1/zoom;
+                    ctx.lineWidth = 0.05;
                     ctx.beginPath();
                     for(let i=0; i<=gridSize; i++) {
-                        ctx.moveTo(i*pSize, 0); ctx.lineTo(i*pSize, canvas.height);
-                        ctx.moveTo(0, i*pSize); ctx.lineTo(canvas.width, i*pSize);
+                        ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height);
+                        ctx.moveTo(0, i); ctx.lineTo(canvas.width, i);
                     }
                     ctx.stroke();
                 }
@@ -609,7 +649,8 @@
             };
 
             const resetCanvas = (size) => {
-                const newFrames = [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: Array(size*size).fill(null) }] }];
+                // Modified to use sparse object {}
+                const newFrames = [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: {} }] }];
                 updateProject(activeProjectId, {
                     gridSize: size,
                     frames: newFrames,
@@ -618,7 +659,7 @@
                 });
                 setCurrentFrameIndex(0);
                 setActiveLayerId('l1');
-                fitToScreen(); // Fit on reset
+                // Center happens via useEffect
             };
 
             const openModal = (type, data = null) => { 
@@ -648,7 +689,7 @@
                 } else if (modalConfig.type === 'clear') {
                     const newFrames = JSON.parse(JSON.stringify(frames));
                     const f = newFrames[currentFrameIndex];
-                    f.layers = f.layers.map(l => l.id === activeLayerId ? { ...l, pixels: Array(gridSize*gridSize).fill(null) } : l);
+                    f.layers = f.layers.map(l => l.id === activeLayerId ? { ...l, pixels: {} } : l);
                     saveHistory(newFrames);
                 } else if (modalConfig.type === 'newFolder' && inputValue) {
                     setLibrary(prev => [...prev, { id: Date.now().toString(), name: inputValue, palettes: [] }]);
@@ -720,8 +761,9 @@
                 const scaleY = canvas.height / rect.height;
                 const cx = e.touches ? e.touches[0].clientX : e.clientX;
                 const cy = e.touches ? e.touches[0].clientY : e.clientY;
-                const x = Math.floor((cx - rect.left) * scaleX / (canvas.width / gridSize));
-                const y = Math.floor((cy - rect.top) * scaleY / (canvas.height / gridSize));
+                // With 1:1 scale, logic simplifies but coordinate mapping remains
+                const x = Math.floor((cx - rect.left) * scaleX);
+                const y = Math.floor((cy - rect.top) * scaleY);
                 return { x, y };
             };
 
@@ -734,7 +776,12 @@
             const plotPixel = (x, y, newPixels, colorToUse) => {
                 if(x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
                 const idx = y * gridSize + x;
-                newPixels[idx] = colorToUse;
+                // Object-based assignment
+                if (colorToUse === null) {
+                    delete newPixels[idx];
+                } else {
+                    newPixels[idx] = colorToUse;
+                }
             };
 
             const paint = (cx, cy, tempPixels) => {
@@ -804,7 +851,7 @@
                     const selection = [];
                     const stack = [{x, y}];
                     const visited = new Set();
-                    const newPixels = [...activeLayer.pixels];
+                    const newPixels = {...activeLayer.pixels}; // copy object
 
                     while (stack.length) {
                         const {x: cx, y: cy} = stack.pop();
@@ -814,7 +861,7 @@
                         const i = cy * gridSize + cx;
                         if(newPixels[i] === targetColor) {
                             selection.push({x: cx, y: cy, color: newPixels[i]});
-                            newPixels[i] = null;
+                            delete newPixels[i]; // Remove from sparse map
                             if(cx>0) stack.push({x: cx-1, y: cy});
                             if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
                             if(cy>0) stack.push({x: cx, y: cy-1});
@@ -836,6 +883,7 @@
                 if (tool === 'dropper') {
                     let picked = null;
                     currentFrame.layers.slice().reverse().forEach(l => {
+                         // Check object key
                          if(!picked && l.visible && l.pixels[y * gridSize + x]) picked = l.pixels[y * gridSize + x];
                     });
                     if (picked) {
@@ -851,20 +899,43 @@
                     const targetColor = activeLayer.pixels[y*gridSize+x];
                     const fillCol = getColorWithOpacity();
                     if (targetColor === fillCol) return;
-                    const newPixels = [...activeLayer.pixels];
+                    
+                    // Safety check for filling empty space on massive canvases
+                    if (!targetColor && gridSize > 1024) {
+                        alert("Filling empty background on huge canvases is restricted for performance.");
+                        return;
+                    }
+
+                    const newPixels = {...activeLayer.pixels};
                     
                     if (tool === 'bucket_all') {
-                        for(let i=0; i<newPixels.length; i++) if(newPixels[i]===targetColor) newPixels[i] = fillCol;
+                        // Iterate keys for sparse replacement
+                        Object.keys(newPixels).forEach(key => {
+                            if (newPixels[key] === targetColor) newPixels[key] = fillCol;
+                        });
                     } else {
                         const stack = [{x, y}];
                         const visited = new Set();
+                        // Max iterations safety break
+                        let safety = 0;
+                        const maxOps = 500000; 
+
                         while(stack.length) {
+                            if (safety++ > maxOps) {
+                                alert("Fill area too large.");
+                                break;
+                            }
                             const {x: cx, y: cy} = stack.pop();
                             const key = `${cx},${cy}`;
                             if(visited.has(key)) continue;
                             visited.add(key);
                             const idx = cy*gridSize+cx;
-                            if(newPixels[idx] === targetColor) {
+                            
+                            // Check equality (handling undefined/null for empty pixels)
+                            const currentPxColor = newPixels[idx] || undefined;
+                            const targetPxColor = targetColor || undefined;
+
+                            if(currentPxColor === targetPxColor) {
                                 newPixels[idx] = fillCol;
                                 if(cx>0) stack.push({x: cx-1, y: cy});
                                 if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
@@ -886,7 +957,7 @@
 
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                const newPixels = [...activeLayer.pixels];
+                const newPixels = {...activeLayer.pixels};
                 if (tool === 'lighten') {
                     const idx = y*gridSize+x;
                     const existing = newPixels[idx];
@@ -927,12 +998,12 @@
 
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                const newPixels = [...activeLayer.pixels];
+                const newPixels = {...activeLayer.pixels};
                 getLinePoints(lastPos.current.x, lastPos.current.y, x, y).forEach(pt => {
                     if (tool === 'lighten') {
                         const idx = pt.y*gridSize+pt.x;
                         const isDarken = e.shiftKey || darkenMode;
-                        if(idx >= 0 && idx < newPixels.length && newPixels[idx]) {
+                        if(idx >= 0 && newPixels[idx]) {
                             newPixels[idx] = adjustBrightness(newPixels[idx], isDarken ? -20 : 20);
                         }
                     } else {
@@ -952,7 +1023,7 @@
                 isDrawing.current = false;
                 
                 if (tool === 'move_pixels' && floatingSelection) {
-                    const newPixels = [...activeLayer.pixels];
+                    const newPixels = {...activeLayer.pixels};
                     floatingSelection.pixels.forEach(p => {
                         const destX = p.x + floatingSelection.offsetX;
                         const destY = p.y + floatingSelection.offsetY;
@@ -968,7 +1039,7 @@
                 }
 
                 const newFrames = JSON.parse(JSON.stringify(frames));
-                let newPixels = [...activeLayer.pixels];
+                let newPixels = {...activeLayer.pixels};
 
                 if (['line', 'rect', 'circle'].includes(tool)) {
                    const { x, y } = getCoordinates(e);
@@ -1006,7 +1077,7 @@
             };
             const addLayer = () => {
                 const newFrames = JSON.parse(JSON.stringify(frames));
-                newFrames[currentFrameIndex].layers = [{ id: 'l'+Date.now(), name: `Layer ${newFrames[currentFrameIndex].layers.length+1}`, visible: true, opacity: 100, pixels: Array(gridSize*gridSize).fill(null) }, ...newFrames[currentFrameIndex].layers];
+                newFrames[currentFrameIndex].layers = [{ id: 'l'+Date.now(), name: `Layer ${newFrames[currentFrameIndex].layers.length+1}`, visible: true, opacity: 100, pixels: {} }, ...newFrames[currentFrameIndex].layers];
                 updateProject(activeProjectId, { frames: newFrames });
                 setActiveLayerId(newFrames[currentFrameIndex].layers[0].id);
             };
@@ -1023,7 +1094,8 @@
             };
             const addFrame = () => {
                 const newFrames = JSON.parse(JSON.stringify(frames));
-                newFrames.splice(currentFrameIndex + 1, 0, { id: 'f'+Date.now(), layers: currentFrame.layers.map(l => ({ ...l, pixels: Array(gridSize*gridSize).fill(null) })) });
+                // Copy structure but empty sparse pixels
+                newFrames.splice(currentFrameIndex + 1, 0, { id: 'f'+Date.now(), layers: currentFrame.layers.map(l => ({ ...l, pixels: {} })) });
                 updateProject(activeProjectId, { frames: newFrames });
                 setCurrentFrameIndex(currentFrameIndex+1);
             };
@@ -1148,10 +1220,10 @@
                 let newGridSize = gridSize;
 
                 if (mode === 'new') {
-                    // Determine best grid size (max 64 to keep performance sane)
+                    // Determine best grid size
+                    // If huge image, we cap at reasonable default to avoid crash during resize calculation
                     const maxDim = Math.max(img.width, img.height);
-                    newGridSize = Math.min(64, Math.ceil(maxDim / 10) * 10); // Round to nearest 10, max 64
-                    // Or just use 32/64 presets? Let's use 64 max
+                    newGridSize = Math.min(64, Math.ceil(maxDim / 10) * 10); 
                     if (newGridSize < 16) newGridSize = 16;
                     targetSize = newGridSize;
                 }
@@ -1163,8 +1235,8 @@
                 ctx.drawImage(img, 0, 0, targetSize, targetSize);
                 const data = ctx.getImageData(0, 0, targetSize, targetSize).data;
                 
-                // Convert to pixels
-                const newPixels = new Array(targetSize * targetSize).fill(null);
+                // Convert to pixels (Sparse Object)
+                const newPixels = {};
                 for(let i=0; i<data.length; i+=4) {
                     if(data[i+3] > 10) { // Transparency check
                         newPixels[i/4] = rgbToHex(data[i], data[i+1], data[i+2]);
@@ -1183,9 +1255,9 @@
                     const newFrames = JSON.parse(JSON.stringify(frames));
                     // Combine with current layer
                     const currentPixels = newFrames[currentFrameIndex].layers.find(l=>l.id===activeLayerId).pixels;
-                    for(let i=0; i<newPixels.length; i++) {
-                        if(newPixels[i]) currentPixels[i] = newPixels[i];
-                    }
+                    Object.entries(newPixels).forEach(([key, val]) => {
+                         currentPixels[key] = val;
+                    });
                     saveHistory(newFrames);
                 }
                 closeModal();
@@ -1200,7 +1272,8 @@
                     const offsetY = idx * gridSize; 
                     frame.layers.slice().reverse().forEach(l => {
                         if(l.visible) {
-                            l.pixels.forEach((c, i) => { 
+                            Object.entries(l.pixels).forEach(([key, c]) => { 
+                                const i = parseInt(key);
                                 if(c) { 
                                     ctx.fillStyle = c; 
                                     ctx.fillRect((i % gridSize), Math.floor(i / gridSize) + offsetY, 1, 1); 
@@ -1425,7 +1498,7 @@
                             </div>
 
                             <div ref={containerRef} className="absolute w-full h-full overflow-hidden touch-none">
-                                <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-space-800 flex-shrink-0" 
+                                <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)] flex-shrink-0 canvas-bg-checkers" 
                                     style={{
                                         transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, 
                                         transformOrigin: '0 0',
@@ -1434,7 +1507,8 @@
                                         cursor: isPanning.current || panMode ? 'grabbing' : 'crosshair',
                                         boxShadow: '0 0 0 1px rgba(255,255,255,0.1)'
                                     }}>
-                                    <canvas ref={canvasRef} width={gridSize*10} height={gridSize*10} className="w-full h-full block" />
+                                    {/* Canvas size is now exactly gridSize. Scaling handled by CSS scale() */}
+                                    <canvas ref={canvasRef} width={gridSize} height={gridSize} className="w-full h-full block" />
                                 </div>
                             </div>
 
@@ -1680,12 +1754,12 @@
                                     ))}
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Custom Size (max 128)</label>
-                                    <input type="number" min="1" max="128"
+                                    <label className="text-xs text-gray-400 mb-1 block">Custom Size</label>
+                                    <input type="number" min="1"
                                         className="w-full bg-space-900 border border-space-600 p-2 rounded text-white outline-none focus:border-tech-500"
                                         value={inputNumberValue} onChange={e => setInputNumberValue(parseInt(e.target.value))} />
                                 </div>
-                                <p className="text-xs text-red-400 mt-2">Warning: Resizing will clear the current canvas.</p>
+                                <p className="text-xs text-red-400 mt-2">Warning: Resizing will clear the current artwork.</p>
                             </div>
                         )}
 
@@ -1708,7 +1782,7 @@
                                             </button>
                                         ))}
                                     </div>
-                                    <input type="number" min="8" max="128"
+                                    <input type="number" min="8"
                                         className="w-full bg-space-900 border border-space-600 p-2 rounded text-white outline-none focus:border-tech-500 text-center"
                                         value={inputNumberValue} onChange={e => setInputNumberValue(parseInt(e.target.value))} />
                                 </div>
