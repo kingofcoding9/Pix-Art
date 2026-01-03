@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Omni-Pix Studio</title>
     <!-- Browser Tab Icon -->
     <link rel="icon" type="image/jpeg" href="Omni-Science Logo.jpg">
@@ -42,17 +42,17 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        body { 
-            overscroll-behavior-y: none; 
-            user-select: none; 
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
             background-color: #050b14;
-        }
-        /* Specific touch action for canvas only, allowing body to behave normally where possible */
-        .canvas-touch-area {
-            touch-action: none;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            touch-action: none; /* Prevent browser zooming/panning globally */
         }
 
+        /* Custom scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.3); }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -61,7 +61,7 @@
         
         /* Glass Panels */
         .glass-panel {
-            background: rgba(15, 23, 42, 0.85); 
+            background: rgba(15, 23, 42, 0.9); 
             backdrop-filter: blur(12px);
             border: 1px solid rgba(34, 211, 238, 0.15);
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
@@ -84,7 +84,7 @@
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="text-slate-300 h-screen w-screen overflow-hidden">
+<body class="text-slate-300">
     <div id="root" class="h-full w-full"></div>
 
     <script type="text/babel">
@@ -1059,7 +1059,7 @@
 
             return (
                 <div 
-                    className="flex flex-col h-full font-sans overflow-hidden" 
+                    className="flex flex-col h-[100dvh] font-sans overflow-hidden bg-space-900" 
                     onContextMenu={e => e.preventDefault()}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
@@ -1067,18 +1067,17 @@
                     <SpaceBackground />
                     
                     {/* Header with Banner Background */}
-                    <header className="relative flex justify-between items-center z-10 mx-2 mt-2 rounded-xl overflow-hidden shadow-lg border border-tech-glow shrink-0">
+                    <header className="relative flex justify-between items-center z-20 mx-2 mt-2 rounded-xl overflow-hidden shadow-lg border border-tech-glow shrink-0 h-12 md:h-14 bg-space-900">
                         {/* Background Image & Overlay */}
                         <div className="absolute inset-0 bg-cover bg-center z-0 hidden md:block" style={{backgroundImage: "url('Omni-Science Banner.jpg')"}}></div>
                         <div className="absolute inset-0 bg-space-900/90 md:bg-space-900/80 backdrop-blur-sm z-0"></div>
 
-                        <div className="relative z-10 flex items-center gap-3 p-2 md:p-3 w-full">
+                        <div className="relative z-10 flex items-center gap-3 p-2 w-full">
                             <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-tech-500 to-blue-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden shrink-0">
                                 <img src="Omni-Science Logo.jpg" className="w-full h-full object-cover" alt="Logo" onError={(e) => {e.target.style.display='none'; e.target.parentNode.innerHTML = '<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\'><path d=\'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\'/></svg>'}} />
                             </div>
                             <div className="overflow-hidden">
                                 <h1 className="text-lg md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-tech-400 to-blue-400 tracking-wider truncate">OMNI-PIX</h1>
-                                <p className="text-[8px] md:text-[10px] text-tech-400 opacity-70 tracking-widest uppercase hidden md:block">Pixel Art Studio</p>
                             </div>
                             <div className="flex-1"></div>
                             <div className="flex items-center gap-1 md:gap-2">
@@ -1101,7 +1100,7 @@
                     </header>
 
                     {/* Tab Bar */}
-                    <div className="flex items-center mx-2 mt-1 gap-1 overflow-x-auto hide-scrollbar z-10 shrink-0">
+                    <div className="flex items-center mx-2 mt-1 gap-1 overflow-x-auto hide-scrollbar z-10 shrink-0 h-10">
                         {projects.map(p => (
                             <div key={p.id} onClick={() => setActiveProjectId(p.id)}
                                 className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-bold cursor-pointer select-none transition-all min-w-[100px] md:min-w-[120px] max-w-[150px] md:max-w-[200px] border-t border-x ${activeProjectId === p.id ? 'bg-space-800 border-tech-500/30 text-tech-400 relative bottom-[-1px] z-20' : 'bg-space-900/50 border-space-700 text-gray-500 hover:bg-space-800/80 hover:text-gray-300'}`}>
@@ -1116,9 +1115,9 @@
                         </button>
                     </div>
 
-                    <div className="flex flex-col md:flex-row flex-1 overflow-hidden p-2 gap-2 pt-0 z-10 relative">
+                    <div className="flex flex-col md:flex-row flex-1 overflow-hidden p-2 gap-2 pt-0 z-10 relative min-h-0">
                         {/* Tools Toolbar - Mobile: Top Scrollable / Desktop: Left Vertical */}
-                        <aside className="w-full md:w-16 h-14 md:h-auto glass-panel rounded-xl flex flex-row md:flex-col items-center py-2 md:py-4 px-2 md:px-0 gap-3 z-10 overflow-x-auto md:overflow-y-auto hide-scrollbar relative shrink-0 order-1">
+                        <aside className="w-full md:w-16 h-12 md:h-auto glass-panel rounded-xl flex flex-row md:flex-col items-center py-2 md:py-4 px-2 md:px-0 gap-3 z-20 overflow-x-auto md:overflow-y-auto hide-scrollbar relative shrink-0 order-1">
                             {[
                                 { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B' },
                                 { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E' },
@@ -1141,7 +1140,7 @@
                                     <t.icon />
                                 </button>
                             ))}
-                            <div className="w-px h-8 md:w-8 md:h-px bg-space-700 my-0 md:my-1 flex-shrink-0"></div>
+                            <div className="w-px h-6 md:w-8 md:h-px bg-space-700 my-0 md:my-1 flex-shrink-0"></div>
                             <div className="flex md:flex-col gap-2">
                                 {['x', 'y', 'xy'].map(m => (
                                     <button key={m} onClick={() => setMirrorMode(prev => prev === m ? 'none' : m)} 
@@ -1155,7 +1154,7 @@
                         </aside>
 
                         {/* Main Canvas Area */}
-                        <main className="flex-1 relative overflow-hidden rounded-xl border border-space-700 bg-space-900/30 backdrop-blur-sm order-2 md:order-2 canvas-touch-area" 
+                        <main className="flex-1 relative overflow-hidden rounded-xl border border-space-700 bg-space-900/30 backdrop-blur-sm order-2 md:order-2 canvas-touch-area min-h-0" 
                             onPointerDown={handlePointerDown} 
                             onPointerMove={handlePointerMove} 
                             onPointerUp={handlePointerUp}
@@ -1179,7 +1178,7 @@
                                 </div>
                             </div>
 
-                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20">
+                            <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-full text-xs font-mono text-tech-400 pointer-events-none flex items-center gap-4 z-20" style={{bottom: isMobilePanelOpen ? '50vh' : '4rem', transition: 'bottom 0.3s'}}>
                                 <span className="opacity-70">COORD: {hoverPos ? `${hoverPos.x},${hoverPos.y}` : '-,-'}</span>
                                 <span className="w-px h-3 bg-space-600"></span>
                                 <span>{gridSize}x{gridSize}</span>
@@ -1195,11 +1194,11 @@
 
                         {/* Right Panel - Mobile: Collapsible Drawer / Desktop: Right Side */}
                         <aside className={`fixed bottom-0 left-0 right-0 z-30 flex flex-col glass-panel transition-all duration-300 md:relative md:w-72 md:h-auto md:z-10 md:order-3 md:rounded-xl md:bg-opacity-100 md:translate-y-0
-                            ${isMobilePanelOpen ? 'h-[50vh] rounded-t-xl' : 'h-12 rounded-t-xl md:h-auto'}`}>
+                            ${isMobilePanelOpen ? 'h-[50vh] rounded-t-xl' : 'h-10 rounded-t-xl md:h-auto'}`}>
                             
                             {/* Drawer Toggle Handle (Mobile Only) */}
-                            <div className="md:hidden flex justify-center py-1 w-full border-b border-space-700 cursor-pointer" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
-                                {isMobilePanelOpen ? <Icons.ChevronDown /> : <Icons.ChevronUp />}
+                            <div className="md:hidden flex justify-center items-center h-4 w-full cursor-pointer bg-space-800/50 rounded-t-xl" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
+                                {isMobilePanelOpen ? <div className="w-8 h-1 bg-gray-600 rounded-full"></div> : <div className="w-8 h-1 bg-gray-500 rounded-full"></div>}
                             </div>
 
                             {/* Color & Brush Settings - Hidden when mobile drawer collapsed */}
@@ -1230,7 +1229,7 @@
                             </div>
 
                             {/* Tabs (Layers/Animate/Library) */}
-                            <div className="flex text-[10px] md:text-xs font-bold border-b border-space-700 uppercase tracking-wider h-10 md:h-auto shrink-0">
+                            <div className="flex text-[10px] md:text-xs font-bold border-b border-space-700 uppercase tracking-wider h-10 md:h-auto shrink-0 bg-space-800 md:bg-transparent">
                                 {['layers', 'animate', 'library'].map(tab => (
                                     <button key={tab} onClick={() => handleTabClick(tab)} 
                                         className={`flex-1 flex items-center justify-center transition-colors ${activeTab===tab ? 'text-tech-400 border-b-2 border-tech-400 bg-space-800/50' : 'text-gray-500 hover:text-white hover:bg-space-800/30'}`}>
