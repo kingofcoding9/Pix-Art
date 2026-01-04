@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Omni-Pix Studio</title>
-    <!-- Browser Tab Icon -->
-    <link rel="icon" type="image/jpeg" href="Omni-Science Logo.jpg">
+    <meta name="description" content="A professional, browser-based pixel art studio with layers, animation, and cloud-ready features.">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -26,9 +25,8 @@
                         }
                     },
                     animation: {
-                        'surge': 'surge 8s linear infinite',
-                        'twinkle': 'twinkle 4s ease-in-out infinite',
-                    },
+                        'spin-slow': 'spin 3s linear infinite',
+                    }
                 }
             }
         }
@@ -49,7 +47,9 @@
             overflow: hidden;
             background-color: #050b14;
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            touch-action: none; /* Prevent browser zooming/panning globally */
+            touch-action: none; /* Critical for drawing apps */
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         /* Custom scrollbar */
@@ -57,12 +57,21 @@
         ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.3); }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #22d3ee; }
-        .range-sm::-webkit-slider-thumb { width: 12px; height: 12px; background: #22d3ee; }
+        
+        .range-sm::-webkit-slider-thumb { 
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px; height: 12px; 
+            background: #22d3ee; 
+            border-radius: 50%;
+            cursor: pointer;
+        }
         
         /* Glass Panels */
         .glass-panel {
             background: rgba(15, 23, 42, 0.9); 
             backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(34, 211, 238, 0.15);
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
         }
@@ -83,7 +92,7 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* Canvas Checkerboard Background handled via CSS for performance on large canvases */
+        /* Canvas Checkerboard */
         .canvas-bg-checkers {
             background-color: #1e293b;
             background-image: 
@@ -95,7 +104,6 @@
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
         }
 
-        /* Loading Spinner */
         .spinner {
             border: 2px solid rgba(34, 211, 238, 0.1);
             border-left-color: #22d3ee;
@@ -105,6 +113,11 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Touch area optimization */
+        .canvas-touch-area {
+            touch-action: none;
+        }
     </style>
 </head>
 <body class="text-slate-300">
@@ -113,7 +126,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-        // --- IndexedDB Helper (Solves Quota Errors & Lag) ---
+        // --- IndexedDB Helper (Persistent Storage) ---
         const DB_CONFIG = {
             NAME: 'OmniPixDB',
             VERSION: 1,
@@ -137,7 +150,6 @@
                 return new Promise((resolve, reject) => {
                     const tx = db.transaction(DB_CONFIG.STORE, 'readwrite');
                     const store = tx.objectStore(DB_CONFIG.STORE);
-                    // Clone to strip non-cloneable refs if any (safety)
                     const clone = JSON.parse(JSON.stringify(project)); 
                     const req = store.put(clone);
                     req.onsuccess = () => resolve();
@@ -234,7 +246,7 @@
             Pencil: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
             Eraser: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>,
             Bucket: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M2 17h20"/></svg>,
-            BucketAll: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M2 17h20"/></svg>,
+            BucketAll: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M2 17h20"/><text x="14" y="22" fontSize="8" fill="currentColor">ALL</text></svg>,
             EyeDropper: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 5L18 9l.9.9"/><path d="m10 14 1.1 1.1a2.1 2.1 0 1 1-2.9 2.9l-1.1-1.1"/><path d="m15 6-3 3"/><path d="m15 9 3 3"/></svg>,
             Line: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="22" x2="22" y2="2"/></svg>,
             Rect: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>,
@@ -330,7 +342,6 @@
                     try {
                         const savedProjects = await dbAPI.getAllProjects();
                         if (savedProjects && savedProjects.length > 0) {
-                            // Sort by lastModified if available
                             savedProjects.sort((a,b) => (b.lastModified || 0) - (a.lastModified || 0));
                             setProjects(savedProjects);
                             const lastId = localStorage.getItem('pixStudioActiveId');
@@ -348,7 +359,6 @@
                 load();
             }, []);
             
-            // Last used grid size state
             const [lastGridSize, setLastGridSize] = useState(() => {
                 const saved = localStorage.getItem('pixStudioLastSize');
                 return saved ? parseInt(saved) : 32;
@@ -364,10 +374,10 @@
             const [color, setColor] = useState('#00eaff');
             const [brushSize, setBrushSize] = useState(1);
             const [toolOpacity, setToolOpacity] = useState(100);
+            const [toolSoftness, setToolSoftness] = useState(0); // New Softness State
             const [mirrorMode, setMirrorMode] = useState('none');
             const [recentColors, setRecentColors] = useState(['#00eaff', '#ff00ff', '#ffffff', '#000000', '#2a2a2a']);
             
-            // Lighten Tool Mode: 'pixel' | 'color' | 'layer'
             const [lightenMode, setLightenMode] = useState('pixel');
             
             const [isPlaying, setIsPlaying] = useState(false);
@@ -409,7 +419,7 @@
             
             // Custom Brush State
             const [customBrushes, setCustomBrushes] = useState([]);
-            const [activeBrushShape, setActiveBrushShape] = useState('square'); // 'square', 'circle', 'custom-id'
+            const [activeBrushShape, setActiveBrushShape] = useState('square'); 
             const brushImportRef = useRef(null);
 
             // Refs
@@ -424,6 +434,7 @@
             const startDrawPos = useRef(null);
             const pendingPixels = useRef({});
             const saveTimeout = useRef(null);
+            const layerCaches = useRef({}); // New: Store Offscreen Canvases for Layers
 
             const frames = currentProject.frames;
             const gridSize = currentProject.gridSize;
@@ -446,8 +457,6 @@
             const currentToolDef = TOOLS.find(t => t.id === tool);
 
             // --- Performance Optimization: Pre-calculate Brush Shape ---
-            // Instead of nested loops in 'paint', we generate an array of relative offsets
-            // whenever brush size or shape changes. This makes painting large brushes O(N) instead of O(size^2) per pixel.
             const brushOffsets = useMemo(() => {
                 const offsets = [];
                 const r = Math.floor(brushSize / 2);
@@ -455,7 +464,6 @@
                 if (activeBrushShape === 'square') {
                     for (let y = -r; y <= r; y++) {
                         for (let x = -r; x <= r; x++) {
-                            // Adjust for even sizes logic if needed, simple centered for now
                             offsets.push({ x, y });
                         }
                     }
@@ -472,24 +480,49 @@
                         }
                     }
                 } else {
-                    // Custom Brush
                     const custom = customBrushes.find(b => b.id === activeBrushShape);
-                    if (custom) {
-                        // Custom brushes scale with brushSize? 
-                        // Simplified: Use custom brush as is, or repeat?
-                        // Let's make custom brushes fixed pattern relative to center
-                        return custom.offsets; 
-                    }
-                    // Fallback square
+                    if (custom) return custom.offsets; 
                     offsets.push({x:0, y:0});
                 }
                 return offsets;
             }, [brushSize, activeBrushShape, customBrushes]);
 
+            // --- Layer Cache Management ---
+            const updateLayerCache = useCallback((layerId, pixels, size) => {
+                if (!layerCaches.current[layerId]) {
+                    layerCaches.current[layerId] = document.createElement('canvas');
+                }
+                const c = layerCaches.current[layerId];
+                if (c.width !== size || c.height !== size) {
+                    c.width = size;
+                    c.height = size;
+                }
+                const ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, size, size);
+                
+                Object.entries(pixels).forEach(([k, color]) => {
+                    if (color) {
+                        const idx = parseInt(k);
+                        const x = idx % size;
+                        const y = Math.floor(idx / size);
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                });
+            }, []);
+
+            // Initial Cache Population
+            useEffect(() => {
+                if (currentFrame) {
+                    currentFrame.layers.forEach(l => {
+                        updateLayerCache(l.id, l.pixels, gridSize);
+                    });
+                }
+            }, [currentFrame, gridSize, updateLayerCache]);
+
             // --- Effects ---
             
             // --- Auto-Save to IndexedDB ---
-            // Only saves the *active* project to minimize serialization cost
             useEffect(() => {
                 if (!dbLoaded) return;
                 
@@ -505,7 +538,7 @@
                         setIsSaving(false);
                     } catch (e) {
                         console.error("Save Failed:", e);
-                        setIsSaving(false); // Should maybe alert user if persistent
+                        setIsSaving(false);
                     }
                 }, 1500); // 1.5s debounce
                 
@@ -629,25 +662,36 @@
                     history: newHistory,
                     historyIndex: newHistory.length - 1
                 });
+                
+                // Update Cache for changed layers
+                deepCopy[currentFrameIndex].layers.forEach(l => {
+                    updateLayerCache(l.id, l.pixels, gridSize);
+                });
             };
 
             const undo = () => {
                 if (currentProject.historyIndex > 0) {
                     const idx = currentProject.historyIndex - 1;
+                    const histFrame = JSON.parse(JSON.stringify(currentProject.history[idx]));
                     updateProject(activeProjectId, {
                         historyIndex: idx,
-                        frames: JSON.parse(JSON.stringify(currentProject.history[idx]))
+                        frames: histFrame
                     });
+                    // Refresh Cache
+                    histFrame[currentFrameIndex].layers.forEach(l => updateLayerCache(l.id, l.pixels, gridSize));
                 }
             };
 
             const redo = () => {
                 if (currentProject.historyIndex < currentProject.history.length - 1) {
                     const idx = currentProject.historyIndex + 1;
+                    const histFrame = JSON.parse(JSON.stringify(currentProject.history[idx]));
                     updateProject(activeProjectId, {
                         historyIndex: idx,
-                        frames: JSON.parse(JSON.stringify(currentProject.history[idx]))
+                        frames: histFrame
                     });
+                    // Refresh Cache
+                    histFrame[currentFrameIndex].layers.forEach(l => updateLayerCache(l.id, l.pixels, gridSize));
                 }
             };
 
@@ -656,117 +700,202 @@
                 if(!canvas) return;
                 const ctx = canvas.getContext('2d');
                 
+                // Use browser's native scaling via drawImage
+                ctx.imageSmoothingEnabled = false;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                // --- Optimized Culling & Rendering ---
-                const startX = Math.floor(-pan.x / zoom);
-                const startY = Math.floor(-pan.y / zoom);
-                const endX = startX + (containerRef.current.clientWidth / zoom);
-                const endY = startY + (containerRef.current.clientHeight / zoom);
                 
-                // EXPANDED BUFFER: 100px to prevent clipping during fast moves/zooms
-                const safety = 100; 
-                const viewMinX = startX - safety;
-                const viewMinY = startY - safety;
-                const viewMaxX = endX + safety;
-                const viewMaxY = endY + safety;
+                // --- FIX: Rendering Logic ---
+                // The canvas is ALREADY transformed by CSS (scale/translate on parent div).
+                // So the canvas element on screen is big.
+                // But the canvas context is still in "Internal Pixel Space" (e.g. 32x32).
+                // So we do NOT need to scale/translate the Context here to match Zoom/Pan.
+                // The CSS handles the visual Zoom/Pan.
+                // We just draw pixels 1:1 on the internal resolution.
 
-                const drawPixelSet = (pixels) => {
-                     Object.keys(pixels).forEach(key => {
-                        const idx = parseInt(key);
-                        // Optimization: Check bounds without modulo if possible
-                        // But idx is 1D. We need 2D.
-                        const py = Math.floor(idx / gridSize);
-                        if (py < viewMinY || py > viewMaxY) return;
-                        
-                        const px = idx % gridSize;
-                        if (px < viewMinX || px > viewMaxX) return;
-                        
-                        const col = pixels[idx];
-                        if(col) {
-                            ctx.fillStyle = col;
-                            ctx.fillRect(px, py, 1, 1);
+                // --- 1. Draw Layers Below Active ---
+                if (currentFrame && currentFrame.layers) {
+                    const layers = currentFrame.layers.slice().reverse();
+                    const activeIndex = layers.findIndex(l => l.id === activeLayerId);
+                    
+                    // Draw Bottom Layers
+                    layers.forEach((layer, idx) => {
+                        if (!layer.visible) return;
+                        if (idx < activeIndex) {
+                            if (layerCaches.current[layer.id]) {
+                                ctx.globalAlpha = layer.opacity / 100;
+                                ctx.drawImage(layerCaches.current[layer.id], 0, 0);
+                            }
                         }
                     });
-                };
 
+                    // --- 2. Draw Active Layer (Composite Eraser Mode) ---
+                    const activeL = layers[activeIndex];
+                    if (activeL && activeL.visible) {
+                        ctx.globalAlpha = activeL.opacity / 100;
+                        
+                        if (Object.keys(pendingPixels.current).length > 0 && tool === 'eraser') {
+                            // Eraser Composite Strategy:
+                            // 1. Draw active layer to temp canvas
+                            // 2. Clear rects on temp canvas where pending pixels are
+                            // 3. Draw temp canvas to main
+                            
+                            // Create or reuse a buffer for the active layer
+                            let buffer = layerCaches.current['buffer'];
+                            if (!buffer || buffer.width !== gridSize) {
+                                buffer = document.createElement('canvas');
+                                buffer.width = gridSize; buffer.height = gridSize;
+                                layerCaches.current['buffer'] = buffer;
+                            }
+                            const bCtx = buffer.getContext('2d');
+                            bCtx.clearRect(0, 0, gridSize, gridSize);
+                            
+                            // Draw the cached active layer state
+                            if (layerCaches.current[activeL.id]) {
+                                bCtx.drawImage(layerCaches.current[activeL.id], 0, 0);
+                            }
+                            
+                            // Apply eraser holes to buffer
+                            Object.keys(pendingPixels.current).forEach(key => {
+                                const idx = parseInt(key);
+                                const px = idx % gridSize;
+                                const py = Math.floor(idx / gridSize);
+                                bCtx.clearRect(px, py, 1, 1);
+                            });
+                            
+                            // Draw buffer to main
+                            ctx.drawImage(buffer, 0, 0);
+                            
+                        } else {
+                            // Standard Drawing (Paint or Idle)
+                            if (layerCaches.current[activeL.id]) {
+                                ctx.drawImage(layerCaches.current[activeL.id], 0, 0);
+                            }
+                            
+                            // Draw Pending Paint on top
+                            if (Object.keys(pendingPixels.current).length > 0) {
+                                Object.entries(pendingPixels.current).forEach(([k, col]) => {
+                                    if(col) {
+                                        const idx = parseInt(k);
+                                        const px = idx % gridSize;
+                                        const py = Math.floor(idx / gridSize);
+                                        ctx.fillStyle = col;
+                                        ctx.fillRect(px, py, 1, 1);
+                                    }
+                                });
+                            }
+                        }
+                        ctx.globalAlpha = 1.0;
+                    }
+
+                    // --- 3. Draw Top Layers ---
+                    layers.forEach((layer, idx) => {
+                        if (!layer.visible) return;
+                        if (idx > activeIndex) {
+                            if (layerCaches.current[layer.id]) {
+                                ctx.globalAlpha = layer.opacity / 100;
+                                ctx.drawImage(layerCaches.current[layer.id], 0, 0);
+                            }
+                        }
+                    });
+                }
+
+                // Onion Skin
                 if (onionSkin && currentFrameIndex > 0 && !isPlaying) {
                     const prevFrame = frames[currentFrameIndex - 1];
-                    ctx.globalAlpha = 0.5; 
+                    ctx.globalAlpha = 0.5;
                     prevFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
-                        drawPixelSet(layer.pixels);
+                        if (layer.pixels) {
+                             Object.keys(layer.pixels).forEach(k => {
+                                 const idx = parseInt(k);
+                                 ctx.fillStyle = layer.pixels[k];
+                                 ctx.fillRect(idx % gridSize, Math.floor(idx / gridSize), 1, 1);
+                             });
+                        }
                     });
                     ctx.globalAlpha = 1.0;
                 }
-
-                if (currentFrame && currentFrame.layers) {
-                    currentFrame.layers.slice().reverse().forEach(layer => {
-                        if (!layer.visible) return;
-                        ctx.globalAlpha = layer.opacity / 100;
-                        drawPixelSet(layer.pixels);
-                        
-                        if (layer.id === activeLayerId && Object.keys(pendingPixels.current).length > 0) {
-                            drawPixelSet(pendingPixels.current);
-                        }
-                    });
-                }
-                ctx.globalAlpha = 1.0;
 
                 // Preview Cursor
                 if (hoverPos && !isPanning.current && !isPlaying && !panMode) {
                     ctx.globalAlpha = 0.4;
                     ctx.fillStyle = getColorWithOpacity();
                     
-                    const drawPreviewPixel = (x, y) => {
-                        if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x, y, 1, 1);
+                    // Helper
+                    const drawP = (x, y) => { 
+                        if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x, y, 1, 1); 
                     };
 
                     if (isDrawing.current && startDrawPos.current && ['line', 'rect', 'circle'].includes(tool)) {
-                        // Shape Preview logic (omitted for brevity, same as before)
+                        // Shape Preview
                         const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
                         const x = hoverPos.x, y = hoverPos.y;
-                        if (tool === 'line') getLinePoints(x0, y0, x, y).forEach(pt => drawPreviewPixel(pt.x, pt.y));
-                        else if (tool === 'rect') { /*...*/ } 
-                        else if (tool === 'circle') { /*...*/ }
+                        if (tool === 'line') getLinePoints(x0, y0, x, y).forEach(pt => drawP(pt.x, pt.y));
+                        else if (tool === 'rect') { 
+                            const rx = Math.min(x0, x), ry = Math.min(y0, y);
+                            const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
+                            for(let i=rx; i<rx+rw; i++) { drawP(i, ry); drawP(i, ry+rh-1); }
+                            for(let i=ry; i<ry+rh; i++) { drawP(rx, i); drawP(rx+rw-1, i); }
+                        } else if (tool === 'circle') {
+                             const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
+                             for(let cy=y0-r; cy<=y0+r; cy++) {
+                                 for(let cx=x0-r; cx<=x0+r; cx++) {
+                                     const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
+                                     if (dist >= r - 0.5 && dist <= r + 0.5) drawP(cx, cy);
+                                 }
+                             }
+                        }
                     } else if (['pencil', 'eraser', 'lighten', 'dither', 'bucket', 'bucket_all'].includes(tool)) {
-                        // Use Optimized Brush Offsets
                         brushOffsets.forEach(off => {
                             const px = hoverPos.x + off.x;
                             const py = hoverPos.y + off.y;
                             if (tool === 'dither' && (px + py) % 2 !== 0) return;
-                            drawPreviewPixel(px, py);
+                            
+                            // Softness Preview: Adjust opacity
+                            if (toolSoftness > 0 && tool !== 'eraser') {
+                                const maxDist = Math.floor(brushSize/2);
+                                const dist = Math.sqrt(off.x*off.x + off.y*off.y);
+                                const edgeStart = maxDist * (1 - toolSoftness/100);
+                                if (dist > edgeStart) {
+                                    const falloff = (dist - edgeStart) / (maxDist - edgeStart);
+                                    ctx.globalAlpha = 0.4 * (1 - falloff);
+                                } else {
+                                    ctx.globalAlpha = 0.4;
+                                }
+                            }
+                            
+                            drawP(px, py);
                         });
                     }
                     ctx.globalAlpha = 1.0;
                 }
 
+                // Selection Box
                 if (floatingSelection) {
+                    ctx.strokeStyle = '#22d3ee';
+                    ctx.lineWidth = 0.1;
                     floatingSelection.pixels.forEach(p => {
-                        const drawX = p.x + floatingSelection.offsetX;
-                        const drawY = p.y + floatingSelection.offsetY;
-                        if (drawX >= 0 && drawX < gridSize && drawY >= 0 && drawY < gridSize) {
-                            ctx.fillStyle = p.color;
-                            ctx.fillRect(drawX, drawY, 1, 1);
-                            ctx.strokeStyle = '#22d3ee';
-                            ctx.lineWidth = 0.1; 
-                            ctx.strokeRect(drawX, drawY, 1, 1);
-                        }
+                        const dx = p.x + floatingSelection.offsetX;
+                        const dy = p.y + floatingSelection.offsetY;
+                        ctx.fillStyle = p.color;
+                        ctx.fillRect(dx, dy, 1, 1);
+                        ctx.strokeRect(dx, dy, 1, 1);
                     });
                 }
 
+                // Grid
                 if (showGrid && zoom > 15 && gridSize < 512) {
                     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                    ctx.lineWidth = 0.05;
+                    ctx.lineWidth = 0.02; // Thinner grid for scaling
                     ctx.beginPath();
                     for(let i=0; i<=gridSize; i++) {
-                        ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height);
-                        ctx.moveTo(0, i); ctx.lineTo(canvas.width, i);
+                        ctx.moveTo(i, 0); ctx.lineTo(i, gridSize);
+                        ctx.moveTo(0, i); ctx.lineTo(gridSize, i);
                     }
                     ctx.stroke();
                 }
 
-            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, startDrawPos, panMode, pendingPixels.current, brushOffsets]);
+            }, [frames, currentFrame, currentFrameIndex, gridSize, zoom, pan, showGrid, onionSkin, isPlaying, floatingSelection, hoverPos, tool, brushSize, color, toolOpacity, toolSoftness, startDrawPos, panMode, pendingPixels.current, brushOffsets, activeLayerId]);
 
             useEffect(() => { requestAnimationFrame(renderCanvas); }, [renderCanvas]);
 
@@ -811,6 +940,8 @@
                     history: [JSON.parse(JSON.stringify(newFrames))],
                     historyIndex: 0
                 });
+                // Invalidate Cache
+                layerCaches.current = {};
                 setLastGridSize(newSize);
             };
 
@@ -843,6 +974,7 @@
                     const f = newFrames[currentFrameIndex];
                     f.layers = f.layers.map(l => l.id === activeLayerId ? { ...l, pixels: {} } : l);
                     saveHistory(newFrames);
+                    updateLayerCache(activeLayerId, {}, gridSize);
                 } else if (modalConfig.type === 'newFolder' && inputValue) setLibrary(prev => [...prev, { id: Date.now().toString(), name: inputValue, palettes: [] }]);
                 else if (modalConfig.type === 'newPalette' && inputValue) {
                     const colors = modalConfig.data || ['#00eaff', '#ff00ff'];
@@ -873,10 +1005,8 @@
                 reader.onload = (evt) => {
                     const img = new Image();
                     img.onload = () => {
-                        // Convert image to offset array
                         const canvas = document.createElement('canvas');
                         const ctx = canvas.getContext('2d');
-                        // Limit brush import size to reasonable 64x64
                         const size = Math.min(img.width, 64); 
                         canvas.width = size;
                         canvas.height = size;
@@ -890,7 +1020,6 @@
                         for(let y=0; y<size; y++) {
                             for(let x=0; x<size; x++) {
                                 const i = (y * size + x) * 4;
-                                // If alpha > 50, it's part of the brush
                                 if(data[i+3] > 50) {
                                     offsets.push({ x: x - cx, y: y - cy });
                                 }
@@ -944,14 +1073,18 @@
                                     p.frames[0].layers[0].pixels = newPixels;
                                     p.history = [JSON.parse(JSON.stringify(p.frames))];
                                     newProjectsList.push(p);
+                                    // Pre-populate cache
+                                    updateLayerCache(p.frames[0].layers[0].id, newPixels, targetW);
                                 } else {
                                     if (mode === 'frames') {
                                         const newFrame = { id: 'f'+Date.now()+'_'+i, layers: targetProject.frames[0].layers.map(l => ({ ...l, pixels: {} })) };
                                         newFrame.layers[0].pixels = newPixels;
                                         targetProject.frames.push(newFrame);
+                                        updateLayerCache(newFrame.layers[0].id, newPixels, gridSize);
                                     } else if (mode === 'layers') {
                                         const newLayer = { id: 'l'+Date.now()+'_'+i, name: file.name.substring(0, 10), visible: true, opacity: 100, pixels: newPixels };
                                         targetProject.frames[currentFrameIndex].layers.unshift(newLayer);
+                                        updateLayerCache(newLayer.id, newPixels, gridSize);
                                     }
                                 }
                                 resolve();
@@ -1021,20 +1154,45 @@
 
             const getCoordinates = (e) => {
                 const canvas = canvasRef.current;
+                if (!canvas) return { x: 0, y: 0 };
+                
+                // Get the size of the canvas element ON SCREEN (including transforms)
                 const rect = canvas.getBoundingClientRect();
-                const scaleX = canvas.width / rect.width;
-                const scaleY = canvas.height / rect.height;
+                
+                // Mouse position relative to the top-left of the canvas element
                 const cx = e.touches ? e.touches[0].clientX : e.clientX;
                 const cy = e.touches ? e.touches[0].clientY : e.clientY;
-                const x = Math.floor((cx - rect.left) * scaleX);
-                const y = Math.floor((cy - rect.top) * scaleY);
-                return { x, y };
+                
+                // If we are outside the canvas rect, this logic still holds but may produce out-of-bounds
+                const relativeX = cx - rect.left;
+                const relativeY = cy - rect.top;
+                
+                // Map screen pixels to canvas internal pixels
+                // If canvas.width is 32, and rect.width is 320, factor is 0.1
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                
+                const gridX = Math.floor(relativeX * scaleX);
+                const gridY = Math.floor(relativeY * scaleY);
+                
+                return { x: gridX, y: gridY };
             };
 
-            const getColorWithOpacity = () => {
-                if (toolOpacity >= 100) return color;
-                const alpha = Math.round(toolOpacity * 2.55).toString(16).padStart(2, '0');
-                return `${color}${alpha}`;
+            const getColorWithOpacity = (dist = 0, maxDist = 1) => {
+                let alpha = toolOpacity;
+                
+                // Softness Logic
+                if (toolSoftness > 0 && maxDist > 0) {
+                    const edgeStart = maxDist * (1 - toolSoftness/100);
+                    if (dist > edgeStart) {
+                        const falloff = (dist - edgeStart) / (maxDist - edgeStart);
+                        alpha = Math.max(0, alpha * (1 - falloff));
+                    }
+                }
+                
+                if (alpha >= 100) return color;
+                const alphaHex = Math.round(alpha * 2.55).toString(16).padStart(2, '0');
+                return `${color}${alphaHex}`;
             };
 
             const plotPixel = (x, y, targetPixels, colorToUse) => {
@@ -1050,14 +1208,23 @@
                 if(mirrorMode.includes('y')) targets.push({x: cx, y: gridSize - 1 - cy});
                 if(mirrorMode === 'xy') targets.push({x: gridSize - 1 - cx, y: gridSize - 1 - cy});
 
-                let drawColor = tool === 'eraser' ? null : getColorWithOpacity();
-                
+                const maxDist = Math.floor(brushSize / 2);
+
                 targets.forEach(pt => {
-                    // Use Optimized Offset Array
                     brushOffsets.forEach(off => {
                         const px = pt.x + off.x;
                         const py = pt.y + off.y;
                         if (tool === 'dither' && (px + py) % 2 !== 0) return;
+                        
+                        // Calculate color based on softness per pixel
+                        let drawColor;
+                        if (tool === 'eraser') {
+                            drawColor = null;
+                        } else {
+                            const dist = Math.sqrt(off.x*off.x + off.y*off.y);
+                            drawColor = getColorWithOpacity(dist, maxDist);
+                        }
+                        
                         plotPixel(px, py, targetPixels, drawColor);
                     });
                 });
@@ -1084,7 +1251,6 @@
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
                 
-                // Precision Zoom Logic: Alt+Shift for 0.001
                 let factor = 0.1; 
                 if (e.shiftKey && e.altKey) factor = 0.001;
                 else if (e.shiftKey) factor = 0.01; 
@@ -1117,7 +1283,6 @@
                     const newPixels = {...activeLayer.pixels};
                     
                     if (lightenMode === 'layer') {
-                        // All non-transparent
                         Object.keys(newPixels).forEach(k => {
                             if (newPixels[k]) newPixels[k] = adjustBrightness(newPixels[k], amount);
                         });
@@ -1126,7 +1291,6 @@
                         saveHistory(newFrames);
                         return;
                     } else if (lightenMode === 'color') {
-                        // All of specific color
                         const targetColor = activeLayer.pixels[y*gridSize+x];
                         if (targetColor) {
                             Object.keys(newPixels).forEach(k => {
@@ -1138,12 +1302,10 @@
                         }
                         return;
                     }
-                    // Else fall through to brush logic
                 }
 
                 if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
 
-                // (Dropper, Bucket logic omitted for brevity, same as previous)
                 if (tool === 'dropper') {
                     let picked = null;
                     currentFrame.layers.slice().reverse().forEach(l => { if(!picked && l.visible && l.pixels[y * gridSize + x]) picked = l.pixels[y * gridSize + x]; });
@@ -1274,18 +1436,18 @@
                    const tempPixels = {}; 
                    if (tool === 'line') getLinePoints(x0, y0, x, y).forEach(pt => plotPixel(pt.x, pt.y, tempPixels, drawColor));
                    else if (tool === 'rect') {
-                        const rx = Math.min(x0, x), ry = Math.min(y0, y);
-                        const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
-                        for(let i=rx; i<rx+rw; i++) { plotPixel(i, ry, tempPixels, drawColor); plotPixel(i, ry+rh-1, tempPixels, drawColor); }
-                        for(let i=ry; i<ry+rh; i++) { plotPixel(rx, i, tempPixels, drawColor); plotPixel(rx+rw-1, i, tempPixels, drawColor); }
+                       const rx = Math.min(x0, x), ry = Math.min(y0, y);
+                       const rw = Math.abs(x - x0) + 1, rh = Math.abs(y - y0) + 1;
+                       for(let i=rx; i<rx+rw; i++) { plotPixel(i, ry, tempPixels, drawColor); plotPixel(i, ry+rh-1, tempPixels, drawColor); }
+                       for(let i=ry; i<ry+rh; i++) { plotPixel(rx, i, tempPixels, drawColor); plotPixel(rx+rw-1, i, tempPixels, drawColor); }
                    } else if (tool === 'circle') {
-                        const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
-                         for(let cy=y0-r; cy<=y0+r; cy++) {
-                             for(let cx=x0-r; cx<=x0+r; cx++) {
-                                 const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
-                                 if (dist >= r - 0.5 && dist <= r + 0.5) plotPixel(cx, cy, tempPixels, drawColor);
-                             }
-                         }
+                       const r = Math.floor(Math.sqrt(Math.pow(x-x0,2) + Math.pow(y-y0,2)));
+                        for(let cy=y0-r; cy<=y0+r; cy++) {
+                            for(let cx=x0-r; cx<=x0+r; cx++) {
+                                const dist = Math.sqrt(Math.pow(cx-x0,2) + Math.pow(cy-y0,2));
+                                if (dist >= r - 0.5 && dist <= r + 0.5) plotPixel(cx, cy, tempPixels, drawColor);
+                            }
+                        }
                    }
                    addRecentColor(color);
                    Object.entries(tempPixels).forEach(([key, val]) => newPixels[key] = val);
@@ -1295,10 +1457,8 @@
                 saveHistory(newFrames);
             };
 
-            // ... (rest of layer management, addColorToPalette, etc. unchanged) ...
-            // Copy previous helper functions exactly to maintain single file integrity
             const updateLayerOpacity = (id, val) => { const newFrames = JSON.parse(JSON.stringify(frames)); newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === id ? { ...l, opacity: val } : l); updateProject(activeProjectId, { frames: newFrames }); };
-            const addLayer = () => { const newFrames = JSON.parse(JSON.stringify(frames)); newFrames[currentFrameIndex].layers = [{ id: 'l'+Date.now(), name: `Layer ${newFrames[currentFrameIndex].layers.length+1}`, visible: true, opacity: 100, pixels: {} }, ...newFrames[currentFrameIndex].layers]; updateProject(activeProjectId, { frames: newFrames }); setActiveLayerId(newFrames[currentFrameIndex].layers[0].id); };
+            const addLayer = () => { const newFrames = JSON.parse(JSON.stringify(frames)); newFrames[currentFrameIndex].layers = [{ id: 'l'+Date.now(), name: `Layer ${newFrames[currentFrameIndex].layers.length+1}`, visible: true, opacity: 100, pixels: {} }, ...newFrames[currentFrameIndex].layers]; updateProject(activeProjectId, { frames: newFrames }); setActiveLayerId(newFrames[currentFrameIndex].layers[0].id); updateLayerCache(newFrames[currentFrameIndex].layers[0].id, {}, gridSize); };
             const deleteLayer = (lid) => { if (currentFrame.layers.length <= 1) return; const newFrames = JSON.parse(JSON.stringify(frames)); newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.filter(l => l.id !== lid); updateProject(activeProjectId, { frames: newFrames }); };
             const toggleLayerVis = (lid) => { const newFrames = JSON.parse(JSON.stringify(frames)); newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === lid ? { ...l, visible: !l.visible } : l); updateProject(activeProjectId, { frames: newFrames }); };
             const addFrame = () => { const newFrames = JSON.parse(JSON.stringify(frames)); newFrames.splice(currentFrameIndex + 1, 0, { id: 'f'+Date.now(), layers: currentFrame.layers.map(l => ({ ...l, pixels: {} })) }); updateProject(activeProjectId, { frames: newFrames }); setCurrentFrameIndex(currentFrameIndex+1); };
@@ -1401,6 +1561,11 @@
                                     onMouseLeave={() => setTooltip(null)}
                                     className={`flex-shrink-0 p-2 md:p-3 rounded-xl transition-all relative group ${tool===t.id ? 'bg-tech-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] md:scale-110' : 'text-gray-400 hover:bg-space-700 hover:text-tech-400'}`}>
                                     <t.icon />
+                                    {t.id === 'lighten' && tool === 'lighten' && (
+                                        <div className="absolute -top-1 -right-1 text-[8px] font-bold bg-black rounded px-1 border border-tech-500 text-tech-400">
+                                            {lightenMode === 'pixel' ? 'P' : lightenMode === 'color' ? 'C' : 'L'}
+                                        </div>
+                                    )}
                                 </button>
                             ))}
                             <div className="w-px h-6 md:w-8 md:h-px bg-space-700 my-0 md:my-1 flex-shrink-0"></div>
@@ -1444,6 +1609,12 @@
                                                     <span>OPACITY</span><span>{toolOpacity}%</span>
                                                 </div>
                                                 <input type="range" min="10" max="100" value={toolOpacity} onChange={e => setToolOpacity(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-[10px] text-gray-400">
+                                                    <span>SOFTNESS</span><span>{toolSoftness}%</span>
+                                                </div>
+                                                <input type="range" min="0" max="100" value={toolSoftness} onChange={e => setToolSoftness(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
                                             </div>
                                         </div>
                                     )}
@@ -1563,6 +1734,10 @@
                                         <div>
                                             <div className="flex justify-between text-[10px] text-gray-400 mb-px"><span>OPACITY</span><span>{toolOpacity}%</span></div>
                                             <input type="range" min="10" max="100" value={toolOpacity} onChange={e => setToolOpacity(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-[10px] text-gray-400 mb-px"><span>SOFTNESS</span><span>{toolSoftness}%</span></div>
+                                            <input type="range" min="0" max="100" value={toolSoftness} onChange={e => setToolSoftness(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
                                         </div>
                                     </div>
                                 </div>
@@ -1765,7 +1940,7 @@
                         </aside>
                     </div>
 
-                    {/* Modals - Unchanged logic, just ensure all types are handled */}
+                    {/* Modals */}
                     <Modal isOpen={modalConfig.isOpen} 
                            title={
                                modalConfig.type === 'newFolder' ? 'New Folder' : 
