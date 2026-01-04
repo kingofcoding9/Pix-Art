@@ -94,6 +94,17 @@
             background-size: 20px 20px;
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
         }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 2px solid rgba(34, 211, 238, 0.1);
+            border-left-color: #22d3ee;
+            border-radius: 50%;
+            width: 12px;
+            height: 12px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="text-slate-300">
@@ -101,6 +112,60 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- IndexedDB Helper (Solves Quota Errors & Lag) ---
+        const DB_CONFIG = {
+            NAME: 'OmniPixDB',
+            VERSION: 1,
+            STORE: 'projects'
+        };
+
+        const dbAPI = {
+            open: () => new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_CONFIG.NAME, DB_CONFIG.VERSION);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(DB_CONFIG.STORE)) {
+                        db.createObjectStore(DB_CONFIG.STORE, { keyPath: 'id' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            }),
+            saveProject: async (project) => {
+                const db = await dbAPI.open();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(DB_CONFIG.STORE, 'readwrite');
+                    const store = tx.objectStore(DB_CONFIG.STORE);
+                    // Clone to strip non-cloneable refs if any (safety)
+                    // Also helps disconnect from React state before heavy save
+                    const clone = JSON.parse(JSON.stringify(project)); 
+                    const req = store.put(clone);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            },
+            getAllProjects: async () => {
+                const db = await dbAPI.open();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(DB_CONFIG.STORE, 'readonly');
+                    const store = tx.objectStore(DB_CONFIG.STORE);
+                    const req = store.getAll();
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+            },
+            deleteProject: async (id) => {
+                const db = await dbAPI.open();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(DB_CONFIG.STORE, 'readwrite');
+                    const store = tx.objectStore(DB_CONFIG.STORE);
+                    const req = store.delete(id);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            }
+        };
 
         // --- Space Background Component ---
         const SpaceBackground = () => {
@@ -197,7 +262,8 @@
             ChevronUp: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>,
             ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
             Gear: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
-            Resize: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M14 10L21 3"/><path d="M9 21H3v-6"/><path d="M10 14L3 21"/></svg>
+            Resize: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M14 10L21 3"/><path d="M9 21H3v-6"/><path d="M10 14L3 21"/></svg>,
+            Save: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         };
 
         const rgbToHex = (r, g, b) => "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
@@ -229,8 +295,8 @@
                             <h3 className="text-lg font-bold text-tech-400 tracking-wider uppercase">{title}</h3>
                             <button onClick={onClose} className="text-gray-400 hover:text-white"><Icons.Close /></button>
                         </div>
-                        <div className="mb-6 text-gray-300">{children}</div>
-                        <div className="flex justify-end gap-2">
+                        <div className="mb-6 text-gray-300 max-h-[60vh] overflow-y-auto">{children}</div>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-gray-700">
                             <button onClick={onClose} className="px-4 py-2 rounded bg-space-700 hover:bg-gray-600 text-sm font-medium border border-gray-600">Cancel</button>
                             {showConfirm && <button onClick={onConfirm} className="px-4 py-2 rounded bg-tech-500 hover:bg-tech-400 text-white text-sm font-bold shadow-[0_0_10px_rgba(34,211,238,0.4)]">{confirmText}</button>}
                         </div>
@@ -241,7 +307,6 @@
 
         function PixelArtStudio() {
             // --- Helper to create a fresh project ---
-            // Pixels are a sparse Object {}
             const createNewProjectData = (id, name = 'Untitled', size = 32) => ({
                 id,
                 name,
@@ -249,48 +314,49 @@
                 frames: [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: {} }] }],
                 fps: 8,
                 history: [],
-                historyIndex: -1
+                historyIndex: -1,
+                lastModified: Date.now()
             });
 
-            // --- Initialization & State ---
-            const [projects, setProjects] = useState(() => {
-                const saved = localStorage.getItem('pixStudioProjects');
-                if (saved) {
+            // --- State ---
+            const [projects, setProjects] = useState([createNewProjectData('p' + Date.now(), 'Project 1')]);
+            const [activeProjectId, setActiveProjectId] = useState(() => projects[0].id);
+            const [isSaving, setIsSaving] = useState(false);
+            const [dbLoaded, setDbLoaded] = useState(false);
+
+            // Load from DB on Mount
+            useEffect(() => {
+                const load = async () => {
                     try {
-                        const parsed = JSON.parse(saved);
-                        // Convert old array-based pixels to object-based if loading from old save
-                        parsed.forEach(p => {
-                            p.frames.forEach(f => {
-                                f.layers.forEach(l => {
-                                    if (Array.isArray(l.pixels)) {
-                                        const sparse = {};
-                                        l.pixels.forEach((col, idx) => {
-                                            if (col) sparse[idx] = col;
-                                        });
-                                        l.pixels = sparse;
-                                    }
-                                });
-                            });
-                        });
-                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-                    } catch(e) {}
-                }
-                const initial = createNewProjectData('p' + Date.now(), 'Project 1');
-                initial.history = [JSON.parse(JSON.stringify(initial.frames))];
-                initial.historyIndex = 0;
-                return [initial];
+                        const savedProjects = await dbAPI.getAllProjects();
+                        if (savedProjects && savedProjects.length > 0) {
+                            // Sort by lastModified if available
+                            savedProjects.sort((a,b) => (b.lastModified || 0) - (a.lastModified || 0));
+                            setProjects(savedProjects);
+                            const lastId = localStorage.getItem('pixStudioActiveId');
+                            if (lastId && savedProjects.find(p => p.id === lastId)) {
+                                setActiveProjectId(lastId);
+                            } else {
+                                setActiveProjectId(savedProjects[0].id);
+                            }
+                        }
+                    } catch (e) {
+                        console.error("DB Load Error", e);
+                    }
+                    setDbLoaded(true);
+                };
+                load();
+            }, []);
+            
+            // Last used grid size state
+            const [lastGridSize, setLastGridSize] = useState(() => {
+                const saved = localStorage.getItem('pixStudioLastSize');
+                return saved ? parseInt(saved) : 32;
             });
 
-            const [activeProjectId, setActiveProjectId] = useState(() => {
-                const saved = localStorage.getItem('pixStudioActiveId');
-                return saved || (projects[0] ? projects[0].id : null);
-            });
-
-            // Derived state for current project
             const currentProjectIndex = projects.findIndex(p => p.id === activeProjectId);
             const currentProject = projects[currentProjectIndex] || projects[0];
             
-            // Local state for UI
             const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
             const [activeLayerId, setActiveLayerId] = useState('l1');
             
@@ -310,32 +376,37 @@
             const [hoverPos, setHoverPos] = useState(null);
             const [tooltip, setTooltip] = useState(null);
             
-            // Mobile UI State
             const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
             const [isMobileToolOptionsOpen, setIsMobileToolOptionsOpen] = useState(false);
-            const [panMode, setPanMode] = useState(false); // For mobile manual panning
-            const [darkenMode, setDarkenMode] = useState(false); // For lighten/darken tool on mobile
+            const [panMode, setPanMode] = useState(false); 
+            const [darkenMode, setDarkenMode] = useState(false);
             
             const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', data: null });
             const [inputValue, setInputValue] = useState('');
             const [inputNumberValue, setInputNumberValue] = useState(32);
             
-            // Palette State
             const [editingPaletteId, setEditingPaletteId] = useState(null);
             const [paletteConfig, setPaletteConfig] = useState({ img: null, count: 8, variety: false });
             const [newSwatchColor, setNewSwatchColor] = useState('#ffffff');
-
             const [floatingSelection, setFloatingSelection] = useState(null); 
             const [library, setLibrary] = useState(() => {
                 const saved = localStorage.getItem('pixelArtPaletteLibrary');
                 return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Cosmic Colors', palettes: [] }];
             });
             const [currentFolderId, setCurrentFolderId] = useState('default');
+            
+            const [importQueue, setImportQueue] = useState([]);
+            const [batchSettings, setBatchSettings] = useState({
+                mode: 'layers',
+                resize: 'original',
+                customSize: 64,
+                applyToAll: true
+            });
+            const [paletteImportQueue, setPaletteImportQueue] = useState([]);
 
             // Refs
             const canvasRef = useRef(null);
             const containerRef = useRef(null);
-            const paletteInputRef = useRef(null);
             const imageImportRef = useRef(null);
             const paletteImageImportRef = useRef(null);
             const isDrawing = useRef(false);
@@ -343,19 +414,14 @@
             const lastPos = useRef(null);
             const playInterval = useRef(null);
             const startDrawPos = useRef(null);
-            
-            // --- NEW: Pending Pixel Buffer for Performance ---
-            // Stores pixels modified during the current stroke.
-            // These are drawn on top of the layer but NOT saved to project state until pointerUp.
             const pendingPixels = useRef({});
+            const saveTimeout = useRef(null);
 
-            // Convenience getters
             const frames = currentProject.frames;
             const gridSize = currentProject.gridSize;
             const currentFrame = frames[currentFrameIndex] || frames[0];
             const activeLayer = currentFrame.layers.find(l => l.id === activeLayerId) || currentFrame.layers[0];
 
-            // Tools Definition
             const TOOLS = [
                 { id: 'pencil', icon: Icons.Pencil, label: 'Pencil', binding: 'B', desc: 'Draw standard pixels' },
                 { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E', desc: 'Clear pixels from layer' },
@@ -369,25 +435,42 @@
                 { id: 'dither', icon: Icons.Dither, label: 'Dither', binding: 'D', desc: 'Checkered pattern brush' },
                 { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'H', desc: 'Shift: Darken' },
             ];
-
             const currentToolDef = TOOLS.find(t => t.id === tool);
 
             // --- Effects ---
+            
+            // --- Auto-Save to IndexedDB ---
+            // Only saves the *active* project to minimize serialization cost
             useEffect(() => {
-                localStorage.setItem('pixStudioProjects', JSON.stringify(projects));
-                localStorage.setItem('pixStudioActiveId', activeProjectId);
-            }, [projects, activeProjectId]);
+                if (!dbLoaded) return;
+                
+                if (saveTimeout.current) clearTimeout(saveTimeout.current);
+                
+                setIsSaving(true);
+                saveTimeout.current = setTimeout(async () => {
+                    try {
+                        const projToSave = { ...currentProject, lastModified: Date.now() };
+                        await dbAPI.saveProject(projToSave);
+                        localStorage.setItem('pixStudioActiveId', activeProjectId);
+                        localStorage.setItem('pixStudioLastSize', lastGridSize);
+                        setIsSaving(false);
+                    } catch (e) {
+                        console.error("Save Failed:", e);
+                        setIsSaving(false); // Should maybe alert user if persistent
+                    }
+                }, 1500); // 1.5s debounce
+                
+                return () => clearTimeout(saveTimeout.current);
+            }, [currentProject, activeProjectId, lastGridSize, dbLoaded]);
 
             useEffect(() => localStorage.setItem('pixelArtPaletteLibrary', JSON.stringify(library)), [library]);
 
-            // Ensure active layer exists when frame changes
             useEffect(() => {
                 if (currentFrame && !currentFrame.layers.find(l => l.id === activeLayerId)) {
                     setActiveLayerId(currentFrame.layers[0].id);
                 }
             }, [currentFrameIndex, frames]);
 
-            // Initialize history for a new project if empty
             useEffect(() => {
                 if (currentProject.history.length === 0) {
                      updateProject(currentProject.id, {
@@ -430,18 +513,16 @@
                 return () => clearInterval(playInterval.current);
             }, [isPlaying, currentProject.fps, frames.length]);
 
-            // --- Auto-Fit Canvas to Screen ---
             const fitToScreen = useCallback(() => {
                 if (!containerRef.current) return;
                 const { width, height } = containerRef.current.getBoundingClientRect();
                 if (width === 0 || height === 0) return;
 
-                const padding = 40; // Space for margins
+                const padding = 40; 
                 const availableW = width - padding;
                 const availableH = height - padding;
-                const baseSize = 512; // Base logical size of canvas wrapper
+                const baseSize = 512; 
                 
-                // Calculate zoom needed to fit the baseSize into available space
                 const scaleW = availableW / baseSize;
                 const scaleH = availableH / baseSize;
                 
@@ -468,16 +549,8 @@
             }, [fitToScreen]);
 
             useEffect(() => fitToScreen(), [isMobilePanelOpen, fitToScreen]);
+            useEffect(() => { setTimeout(fitToScreen, 10); }, [activeProjectId, gridSize, fitToScreen]);
 
-            // Fix for "Center on Create": Trigger fitToScreen when the project ID or grid size changes
-            useEffect(() => {
-                // Small timeout to ensure DOM has updated with new canvas size
-                const t = setTimeout(fitToScreen, 10);
-                return () => clearTimeout(t);
-            }, [activeProjectId, gridSize, fitToScreen]);
-
-
-            // --- Core Helper to Update Project State ---
             const updateProject = (pid, changes) => {
                 setProjects(prev => prev.map(p => {
                     if (p.id !== pid) return p;
@@ -489,7 +562,16 @@
                 const deepCopy = JSON.parse(JSON.stringify(newFrames));
                 const newHistory = currentProject.history.slice(0, currentProject.historyIndex + 1);
                 newHistory.push(deepCopy);
-                if (newHistory.length > 20) newHistory.shift();
+                
+                // Dynamic History Limit:
+                // Huge Canvases (>2048) get minimal history to prevent crash
+                // Large Canvases (>512) get small history
+                // Small get normal
+                let limit = 20;
+                if (gridSize > 2048) limit = 3;
+                else if (gridSize > 512) limit = 10;
+                
+                if (newHistory.length > limit) newHistory.shift();
                 
                 updateProject(activeProjectId, {
                     frames: deepCopy,
@@ -518,7 +600,6 @@
                 }
             };
 
-            // --- Rendering ---
             const renderCanvas = useCallback(() => {
                 const canvas = canvasRef.current;
                 if(!canvas) return;
@@ -526,35 +607,37 @@
                 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                // --- OPTIMIZATION: Viewport Culling ---
-                // Only loop through pixels that could possibly be visible.
-                // Since our data is a sparse object, we can't efficiently range-query without a spatial index.
-                // However, iterating Keys is O(N) of painted pixels. If we have 10k pixels painted, JS is fast enough to check 10k items.
-                // The bottleneck is canvas.fillRect. We must SKIP fillRect if outside bounds.
+                // --- Improved Culling Logic ---
+                // Calculate visible bounds in canvas coordinates
+                // pan.x/y is the translation in pixels. zoom is scale.
+                // Screen Point 0 corresponds to: (0 - pan) / zoom
+                // Screen Point MAX corresponds to: (MAX - pan) / zoom
                 
                 const startX = Math.floor(-pan.x / zoom);
                 const startY = Math.floor(-pan.y / zoom);
                 const endX = startX + (containerRef.current.clientWidth / zoom);
                 const endY = startY + (containerRef.current.clientHeight / zoom);
-                // Expand bounds slightly to prevent clipping
-                const viewMinX = startX - 1;
-                const viewMinY = startY - 1;
-                const viewMaxX = endX + 1;
-                const viewMaxY = endY + 1;
+                
+                // Safety Buffer: Add generous margin (20px) to prevent glitches when zooming
+                const safety = 20; 
+                const viewMinX = startX - safety;
+                const viewMinY = startY - safety;
+                const viewMaxX = endX + safety;
+                const viewMaxY = endY + safety;
 
                 const isVisible = (idx) => {
+                    // Optimization: For small grids, skip culling math
+                    if (gridSize < 128) return true;
+                    
                     const px = idx % gridSize;
                     const py = Math.floor(idx / gridSize);
                     return px >= viewMinX && px <= viewMaxX && py >= viewMinY && py <= viewMaxY;
                 };
 
-                // Helper to draw pixels (handles both Layer pixels and Pending pixels)
                 const drawPixelSet = (pixels) => {
                      Object.keys(pixels).forEach(key => {
                         const idx = parseInt(key);
-                        // Culling Check
                         if (!isVisible(idx)) return; 
-                        
                         const col = pixels[idx];
                         if(col) {
                             ctx.fillStyle = col;
@@ -563,7 +646,6 @@
                     });
                 };
 
-                // Onion Skin
                 if (onionSkin && currentFrameIndex > 0 && !isPlaying) {
                     const prevFrame = frames[currentFrameIndex - 1];
                     ctx.globalAlpha = 0.5; 
@@ -574,14 +656,12 @@
                     ctx.globalAlpha = 1.0;
                 }
 
-                // Layers
                 if (currentFrame && currentFrame.layers) {
                     currentFrame.layers.slice().reverse().forEach(layer => {
                         if (!layer.visible) return;
                         ctx.globalAlpha = layer.opacity / 100;
                         drawPixelSet(layer.pixels);
                         
-                        // --- Draw Pending Pixels on top of Active Layer ---
                         if (layer.id === activeLayerId && Object.keys(pendingPixels.current).length > 0) {
                             drawPixelSet(pendingPixels.current);
                         }
@@ -589,7 +669,6 @@
                 }
                 ctx.globalAlpha = 1.0;
 
-                // Tool Previews
                 if (hoverPos && !isPanning.current && !isPlaying && !panMode) {
                     ctx.globalAlpha = 0.4;
                     ctx.fillStyle = getColorWithOpacity();
@@ -598,7 +677,6 @@
                         if(x>=0 && x<gridSize && y>=0 && y<gridSize) ctx.fillRect(x, y, 1, 1);
                     };
 
-                    // Line/Rect/Circle Previews (Direct calculation, committed on UP)
                     if (isDrawing.current && startDrawPos.current && ['line', 'rect', 'circle'].includes(tool)) {
                         const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
                         const x = hoverPos.x, y = hoverPos.y;
@@ -619,7 +697,6 @@
                              }
                         }
                     } else if (tool === 'pencil' || tool === 'eraser' || tool === 'lighten' || tool === 'dither' || tool === 'bucket' || tool === 'bucket_all') {
-                        // Brush cursor
                         for(let oy = -Math.floor(brushSize/2); oy <= Math.floor((brushSize-1)/2); oy++) {
                             for(let ox = -Math.floor(brushSize/2); ox <= Math.floor((brushSize-1)/2); ox++) {
                                 const px = hoverPos.x + ox, py = hoverPos.y + oy;
@@ -633,7 +710,6 @@
                     ctx.globalAlpha = 1.0;
                 }
 
-                // Selection
                 if (floatingSelection) {
                     floatingSelection.pixels.forEach(p => {
                         const drawX = p.x + floatingSelection.offsetX;
@@ -648,8 +724,8 @@
                     });
                 }
 
-                // Grid Lines - Optimization: Only draw if zoom is high enough to matter, and canvas isn't massive
-                if (showGrid && zoom > 15 && gridSize < 256) {
+                // Grid Lines
+                if (showGrid && zoom > 15 && gridSize < 512) {
                     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
                     ctx.lineWidth = 0.05;
                     ctx.beginPath();
@@ -664,7 +740,6 @@
 
             useEffect(() => { requestAnimationFrame(renderCanvas); }, [renderCanvas]);
 
-            // --- Logic Helpers ---
             const addRecentColor = (c) => {
                 setRecentColors(prev => {
                     const normalized = c.toUpperCase();
@@ -673,53 +748,83 @@
                 });
             };
 
-            const resetCanvas = (size) => {
-                // Modified to use sparse object {}
-                const newFrames = [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, opacity: 100, pixels: {} }] }];
+            const resizeCanvasWithContent = (newSize) => {
+                // New Algorithm: Resample existing pixels (Nearest Neighbor)
+                if (newSize === gridSize) return;
+                
+                const ratio = newSize / gridSize;
+                const newFrames = JSON.parse(JSON.stringify(frames));
+                
+                newFrames.forEach(frame => {
+                    frame.layers.forEach(layer => {
+                        const newPixels = {};
+                        Object.keys(layer.pixels).forEach(key => {
+                            const idx = parseInt(key);
+                            const oldX = idx % gridSize;
+                            const oldY = Math.floor(idx / gridSize);
+                            const color = layer.pixels[key];
+                            
+                            // Map point to block
+                            const startX = Math.floor(oldX * ratio);
+                            const startY = Math.floor(oldY * ratio);
+                            // Scale up block size
+                            const endX = Math.ceil((oldX + 1) * ratio);
+                            const endY = Math.ceil((oldY + 1) * ratio);
+
+                            for (let ny = startY; ny < endY; ny++) {
+                                for (let nx = startX; nx < endX; nx++) {
+                                    if (nx < newSize && ny < newSize) {
+                                         newPixels[ny * newSize + nx] = color;
+                                    }
+                                }
+                            }
+                        });
+                        layer.pixels = newPixels;
+                    });
+                });
+
                 updateProject(activeProjectId, {
-                    gridSize: size,
+                    gridSize: newSize,
                     frames: newFrames,
                     history: [JSON.parse(JSON.stringify(newFrames))],
                     historyIndex: 0
                 });
-                setCurrentFrameIndex(0);
-                setActiveLayerId('l1');
-                // Center happens via useEffect
+                
+                setLastGridSize(newSize);
             };
 
             const openModal = (type, data = null) => { 
                 setInputValue(''); 
-                if (type === 'newProject') setInputNumberValue(32);
+                if (type === 'newProject') {
+                    // Instant creation, no modal
+                    const newId = 'p' + Date.now();
+                    const nextNum = projects.length + 1;
+                    const newProj = createNewProjectData(newId, `Project ${nextNum}`, lastGridSize);
+                    setProjects(prev => [...prev, newProj]);
+                    setActiveProjectId(newId);
+                    return; 
+                }
                 if (type === 'resize') setInputNumberValue(gridSize);
                 if (type === 'addSwatch') setNewSwatchColor(color);
                 setModalConfig({ isOpen: true, type, data }); 
             };
-            const closeModal = () => setModalConfig({ ...modalConfig, isOpen: false });
+            const closeModal = () => {
+                setModalConfig({ ...modalConfig, isOpen: false });
+                setImportQueue([]); // Clear queue on close
+                setPaletteImportQueue([]);
+            };
 
             const handleModalConfirm = () => {
                 if (modalConfig.type === 'resize') {
                     const size = inputNumberValue;
                     if(size && size > 0 && size <= 32000) {
-                        resetCanvas(size);
+                        resizeCanvasWithContent(size);
                     } else if (size > 32000) {
-                        alert("Max canvas size is 32000 to prevent browser crash.");
+                        alert("Max canvas size 32,000.");
                         return;
                     }
                 } else if (modalConfig.type === 'confirm-resize') {
-                     resetCanvas(modalConfig.data);
-                } else if (modalConfig.type === 'newProject') {
-                    const size = inputNumberValue;
-                    if(size && size > 0 && inputValue) {
-                        if (size > 32000) {
-                            alert("Max canvas size is 32000 to prevent browser crash.");
-                            return;
-                        }
-                        const newId = 'p' + Date.now();
-                        const newProj = createNewProjectData(newId, inputValue, size);
-                        setProjects([...projects, newProj]);
-                        setActiveProjectId(newId);
-                        setZoom(1); setPan({x:0,y:0}); setCurrentFrameIndex(0);
-                    }
+                     resizeCanvasWithContent(modalConfig.data);
                 } else if (modalConfig.type === 'clear') {
                     const newFrames = JSON.parse(JSON.stringify(frames));
                     const f = newFrames[currentFrameIndex];
@@ -728,7 +833,7 @@
                 } else if (modalConfig.type === 'newFolder' && inputValue) {
                     setLibrary(prev => [...prev, { id: Date.now().toString(), name: inputValue, palettes: [] }]);
                 } else if (modalConfig.type === 'newPalette' && inputValue) {
-                    const colors = modalConfig.data || ['#00eaff', '#ff00ff']; // Use passed data or default
+                    const colors = modalConfig.data || ['#00eaff', '#ff00ff'];
                     setLibrary(prev => prev.map(folder => {
                         if(folder.id === currentFolderId) {
                             return { ...folder, palettes: [...folder.palettes, { id: Date.now(), name: inputValue, colors }] };
@@ -736,56 +841,178 @@
                         return folder;
                     }));
                 } else if (modalConfig.type === 'addSwatch') {
-                    // Modal handles adding either current color or newSwatchColor
                     if (modalConfig.data && modalConfig.data.paletteId) {
                          addColorToPalette(modalConfig.data.paletteId, newSwatchColor);
                     }
+                } else if (modalConfig.type === 'batchImport') {
+                    processBatchImport();
                 } else if (modalConfig.type === 'paletteImportOptions') {
-                    // Logic to extract prevalent colors based on config
-                    const { img, count, variety } = paletteConfig;
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    // Downscale for performance
-                    const scale = Math.min(1, 256 / Math.max(img.width, img.height));
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    
-                    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                    const colorCounts = {};
-                    
-                    for(let i=0; i<data.length; i+=4) {
-                        // Strict transparency check: Skip if alpha is low (e.g., < 20 out of 255)
-                        if(data[i+3] > 20) { 
-                            const hex = rgbToHex(data[i], data[i+1], data[i+2]);
-                            colorCounts[hex] = (colorCounts[hex] || 0) + 1;
-                        }
-                    }
-                    
-                    // Sort by frequency
-                    let sortedColors = Object.entries(colorCounts)
-                        .sort((a, b) => b[1] - a[1])
-                        .map(entry => entry[0]);
-                    
-                    if (variety) {
-                        const varietyColors = [];
-                        for (let c of sortedColors) {
-                            if (varietyColors.length >= count) break;
-                            // Check distance against all currently selected variety colors
-                            const isDistinct = varietyColors.every(existing => getColorDistance(existing, c) > 40);
-                            if (isDistinct) varietyColors.push(c);
-                        }
-                        sortedColors = varietyColors;
-                    } else {
-                        sortedColors = sortedColors.slice(0, count);
-                    }
-                    
-                    if(sortedColors.length > 0) {
-                        openModal('newPalette', sortedColors); // Open naming modal
-                        return;
-                    } 
+                    processBatchPaletteImport();
                 }
                 closeModal();
+            };
+
+            // --- Multi-Image Import Logic ---
+            const processBatchImport = async () => {
+                if (!importQueue.length) return;
+                
+                const mode = batchSettings.mode; // 'frames', 'layers', 'projects'
+                const resize = batchSettings.resize;
+                const customSize = batchSettings.customSize;
+                
+                let targetProject = mode !== 'projects' ? JSON.parse(JSON.stringify(currentProject)) : null;
+                const newProjectsList = [];
+
+                for (let i = 0; i < importQueue.length; i++) {
+                    const file = importQueue[i];
+                    await new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                let targetW, targetH;
+                                if (resize === 'original') {
+                                    targetW = img.width; targetH = img.height;
+                                } else if (resize === 'custom') {
+                                    targetW = targetH = customSize;
+                                } else {
+                                    targetW = targetH = parseInt(resize);
+                                }
+                                
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                canvas.width = targetW;
+                                canvas.height = targetH;
+                                ctx.drawImage(img, 0, 0, targetW, targetH);
+                                const data = ctx.getImageData(0, 0, targetW, targetH).data;
+                                
+                                const newPixels = {};
+                                for(let p=0; p<data.length; p+=4) {
+                                    if(data[p+3] > 10) {
+                                        newPixels[p/4] = rgbToHex(data[p], data[p+1], data[p+2]);
+                                    }
+                                }
+
+                                if (mode === 'projects') {
+                                    const pid = 'p'+Date.now()+'_'+i;
+                                    const p = createNewProjectData(pid, file.name.split('.')[0], targetW);
+                                    p.frames[0].layers[0].pixels = newPixels;
+                                    p.history = [JSON.parse(JSON.stringify(p.frames))];
+                                    newProjectsList.push(p);
+                                } else {
+                                    if (mode === 'frames') {
+                                        const newFrame = { 
+                                            id: 'f'+Date.now()+'_'+i, 
+                                            layers: targetProject.frames[0].layers.map(l => ({ ...l, pixels: {} })) 
+                                        };
+                                        newFrame.layers[0].pixels = newPixels;
+                                        targetProject.frames.push(newFrame);
+                                    } else if (mode === 'layers') {
+                                        const newLayer = {
+                                            id: 'l'+Date.now()+'_'+i,
+                                            name: file.name.substring(0, 10),
+                                            visible: true,
+                                            opacity: 100,
+                                            pixels: newPixels
+                                        };
+                                        targetProject.frames[currentFrameIndex].layers.unshift(newLayer);
+                                    }
+                                }
+                                resolve();
+                            };
+                            img.src = e.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                }
+
+                if (mode === 'projects') {
+                    setProjects(prev => [...prev, ...newProjectsList]);
+                    setActiveProjectId(newProjectsList[0].id);
+                    // Trigger instant save for new projects
+                    newProjectsList.forEach(p => dbAPI.saveProject(p));
+                } else {
+                    updateProject(targetProject.id, { frames: targetProject.frames });
+                    saveHistory(targetProject.frames);
+                }
+            };
+
+            const processBatchPaletteImport = async () => {
+                if (!paletteImportQueue.length) return;
+
+                const { count, variety } = paletteConfig;
+                const newPalettes = [];
+
+                for (let i = 0; i < paletteImportQueue.length; i++) {
+                    const file = paletteImportQueue[i];
+                    await new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                const scale = Math.min(1, 256 / Math.max(img.width, img.height));
+                                canvas.width = img.width * scale;
+                                canvas.height = img.height * scale;
+                                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                
+                                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                                const colorCounts = {};
+                                
+                                for(let p=0; p<data.length; p+=4) {
+                                    if(data[p+3] > 20) { 
+                                        const hex = rgbToHex(data[p], data[p+1], data[p+2]);
+                                        colorCounts[hex] = (colorCounts[hex] || 0) + 1;
+                                    }
+                                }
+                                
+                                let sortedColors = Object.entries(colorCounts)
+                                    .sort((a, b) => b[1] - a[1])
+                                    .map(entry => entry[0]);
+                                
+                                if (variety) {
+                                    const varietyColors = [];
+                                    for (let c of sortedColors) {
+                                        if (varietyColors.length >= count) break;
+                                        const isDistinct = varietyColors.every(existing => getColorDistance(existing, c) > 40);
+                                        if (isDistinct) varietyColors.push(c);
+                                    }
+                                    sortedColors = varietyColors;
+                                } else {
+                                    sortedColors = sortedColors.slice(0, count);
+                                }
+                                
+                                if(sortedColors.length > 0) {
+                                    newPalettes.push({
+                                        id: Date.now() + i,
+                                        name: 'Palette from ' + file.name.substring(0, 15),
+                                        colors: sortedColors
+                                    });
+                                }
+                                resolve();
+                            };
+                            img.src = e.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                }
+
+                setLibrary(prev => prev.map(folder => {
+                    if(folder.id === currentFolderId) {
+                        return { ...folder, palettes: [...folder.palettes, ...newPalettes] };
+                    }
+                    return folder;
+                }));
+            };
+
+            const handleImageImport = (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length > 0) {
+                    setImportQueue(files);
+                    setModalConfig({ isOpen: true, type: 'batchImport' });
+                    e.target.value = null; 
+                }
             };
 
             const getCoordinates = (e) => {
@@ -795,7 +1022,6 @@
                 const scaleY = canvas.height / rect.height;
                 const cx = e.touches ? e.touches[0].clientX : e.clientX;
                 const cy = e.touches ? e.touches[0].clientY : e.clientY;
-                // With 1:1 scale, logic simplifies but coordinate mapping remains
                 const x = Math.floor((cx - rect.left) * scaleX);
                 const y = Math.floor((cy - rect.top) * scaleY);
                 return { x, y };
@@ -807,14 +1033,11 @@
                 return `${color}${alpha}`;
             };
 
-            // Modified to write to a target Object (buffer or layer pixels)
             const plotPixel = (x, y, targetPixels, colorToUse, layerPixelsForRead) => {
                 if(x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
                 const idx = y * gridSize + x;
-                
-                // If it's the eraser, we are removing. In sparse map, we delete.
                 if (colorToUse === null) {
-                    targetPixels[idx] = null; // Mark for deletion or actually delete
+                    targetPixels[idx] = null; 
                 } else {
                     targetPixels[idx] = colorToUse;
                 }
@@ -858,11 +1081,19 @@
                 const rect = containerRef.current.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
-                const delta = -Math.sign(e.deltaY) * 0.5;
-                const newZoom = Math.min(Math.max(0.1, zoom + delta), 40); // Allow zoom < 1
+                
+                // Precision Zoom Logic
+                let factor = 0.1; // Default
+                if (e.shiftKey && e.ctrlKey) factor = 0.001; // Ultra precise (Shift+Ctrl)
+                else if (e.shiftKey) factor = 0.01; // Precise (Shift)
+                
+                const delta = -Math.sign(e.deltaY) * factor;
+                const newZoom = Math.min(Math.max(0.01, zoom + delta), 200); 
+                
                 const scaleFactor = newZoom / zoom;
                 const newPanX = mouseX - (mouseX - pan.x) * scaleFactor;
                 const newPanY = mouseY - (mouseY - pan.y) * scaleFactor;
+                
                 setZoom(newZoom);
                 setPan({x: newPanX, y: newPanY});
             };
@@ -887,7 +1118,7 @@
                     const selection = [];
                     const stack = [{x, y}];
                     const visited = new Set();
-                    const newPixels = {...activeLayer.pixels}; // copy object
+                    const newPixels = {...activeLayer.pixels};
 
                     while (stack.length) {
                         const {x: cx, y: cy} = stack.pop();
@@ -897,7 +1128,7 @@
                         const i = cy * gridSize + cx;
                         if(newPixels[i] === targetColor) {
                             selection.push({x: cx, y: cy, color: newPixels[i]});
-                            delete newPixels[i]; // Remove from sparse map
+                            delete newPixels[i]; 
                             if(cx>0) stack.push({x: cx-1, y: cy});
                             if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
                             if(cy>0) stack.push({x: cx, y: cy-1});
@@ -919,7 +1150,6 @@
                 if (tool === 'dropper') {
                     let picked = null;
                     currentFrame.layers.slice().reverse().forEach(l => {
-                         // Check object key
                          if(!picked && l.visible && l.pixels[y * gridSize + x]) picked = l.pixels[y * gridSize + x];
                     });
                     if (picked) {
@@ -931,44 +1161,35 @@
                     return;
                 }
 
-                // Bucket is instant, so we keep legacy behavior (immediate commit) but protect against huge fills
                 if (tool === 'bucket' || tool === 'bucket_all') {
                     const targetColor = activeLayer.pixels[y*gridSize+x];
                     const fillCol = getColorWithOpacity();
                     if (targetColor === fillCol) return;
                     
-                    // Safety check for filling empty space on massive canvases
                     if (!targetColor && gridSize > 1024) {
-                        alert("Filling empty background on huge canvases is restricted for performance.");
-                        return;
+                        if(!confirm("Filling massive empty areas might be slow. Continue?")) return;
                     }
 
                     const newPixels = {...activeLayer.pixels};
                     
                     if (tool === 'bucket_all') {
-                        // Iterate keys for sparse replacement
                         Object.keys(newPixels).forEach(key => {
                             if (newPixels[key] === targetColor) newPixels[key] = fillCol;
                         });
                     } else {
                         const stack = [{x, y}];
                         const visited = new Set();
-                        // Max iterations safety break
                         let safety = 0;
                         const maxOps = 500000; 
 
                         while(stack.length) {
-                            if (safety++ > maxOps) {
-                                alert("Fill area too large.");
-                                break;
-                            }
+                            if (safety++ > maxOps) break;
                             const {x: cx, y: cy} = stack.pop();
                             const key = `${cx},${cy}`;
                             if(visited.has(key)) continue;
                             visited.add(key);
                             const idx = cy*gridSize+cx;
                             
-                            // Check equality (handling undefined/null for empty pixels)
                             const currentPxColor = newPixels[idx] || undefined;
                             const targetPxColor = targetColor || undefined;
 
@@ -991,17 +1212,11 @@
                 isDrawing.current = true;
                 lastPos.current = { x, y };
                 startDrawPos.current = { x, y };
-                // Clear pending buffer on start
                 pendingPixels.current = {};
 
-                // For immediate visual feedback on first click
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                // For brushes:
                 if (tool === 'lighten') {
-                    // Lighten reads from existing, so we have to copy into pending.
-                    // Actually, modifying pending is easier. We read from activeLayer AND pending.
-                    // For simplicity, just read activeLayer, calculate result, store in pending.
                     const idx = y*gridSize+x;
                     const existing = activeLayer.pixels[idx];
                     const isDarken = e.shiftKey || darkenMode;
@@ -1010,7 +1225,6 @@
                     paint(x, y, pendingPixels.current, activeLayer.pixels);
                     if(tool !== 'eraser' && tool !== 'dither') addRecentColor(color);
                 }
-                // Note: We do NOT call updateProject here.
             };
 
             const handlePointerMove = (e) => {
@@ -1038,12 +1252,10 @@
 
                 if (['line', 'rect', 'circle'].includes(tool)) return; 
 
-                // Performance Optimization: Commit strokes to pendingPixels buffer instead of React state
                 getLinePoints(lastPos.current.x, lastPos.current.y, x, y).forEach(pt => {
                     if (tool === 'lighten') {
                         const idx = pt.y*gridSize+pt.x;
                         const isDarken = e.shiftKey || darkenMode;
-                        // Check active layer for base color
                         const base = activeLayer.pixels[idx];
                         if(idx >= 0 && base) {
                              pendingPixels.current[idx] = adjustBrightness(base, isDarken ? -20 : 20);
@@ -1077,27 +1289,23 @@
                     return;
                 }
 
-                // COMMIT STAGE
-                // Merge pending pixels into actual project state
                 const newFrames = JSON.parse(JSON.stringify(frames));
                 let newPixels = {...activeLayer.pixels};
 
-                // Apply pending buffer (Pencil/Eraser/Lighten)
                 if (Object.keys(pendingPixels.current).length > 0) {
                      Object.entries(pendingPixels.current).forEach(([key, val]) => {
                          if (val === null) delete newPixels[key];
                          else newPixels[key] = val;
                      });
-                     pendingPixels.current = {}; // Clear buffer
+                     pendingPixels.current = {}; 
                 }
 
-                // Apply Shape Tools (Line/Rect/Circle) - they calculate on UP
                 if (['line', 'rect', 'circle'].includes(tool)) {
                    const { x, y } = getCoordinates(e);
                    const x0 = startDrawPos.current.x, y0 = startDrawPos.current.y;
                    const drawColor = getColorWithOpacity();
                    
-                   const tempPixels = {}; // Local buffer for shape
+                   const tempPixels = {}; 
 
                    if (tool === 'line') {
                        getLinePoints(x0, y0, x, y).forEach(pt => plotPixel(pt.x, pt.y, tempPixels, drawColor));
@@ -1116,16 +1324,13 @@
                          }
                    }
                    addRecentColor(color);
-                   // Merge shape
                    Object.entries(tempPixels).forEach(([key, val]) => newPixels[key] = val);
                 } 
                 
-                // Final save
                 newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
                 saveHistory(newFrames);
             };
 
-            // --- Layer/Frame Management using updateProject ---
             const updateLayerOpacity = (id, val) => {
                 const newFrames = JSON.parse(JSON.stringify(frames));
                 newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === id ? { ...l, opacity: val } : l);
@@ -1150,7 +1355,6 @@
             };
             const addFrame = () => {
                 const newFrames = JSON.parse(JSON.stringify(frames));
-                // Copy structure but empty sparse pixels
                 newFrames.splice(currentFrameIndex + 1, 0, { id: 'f'+Date.now(), layers: currentFrame.layers.map(l => ({ ...l, pixels: {} })) });
                 updateProject(activeProjectId, { frames: newFrames });
                 setCurrentFrameIndex(currentFrameIndex+1);
@@ -1168,29 +1372,28 @@
                 setCurrentFrameIndex(currentFrameIndex+1);
             };
 
-            // --- Multi-Tab Management ---
             const createNewProject = () => {
                 openModal('newProject');
             };
 
-            const closeProject = (e, pid) => {
+            const closeProject = async (e, pid) => {
                 e.stopPropagation();
                 if (projects.length <= 1) return;
-                const newProjs = projects.filter(p => p.id !== pid);
-                setProjects(newProjs);
-                if (activeProjectId === pid) setActiveProjectId(newProjs[0].id);
+                
+                if (confirm('Delete this project?')) {
+                    await dbAPI.deleteProject(pid);
+                    const newProjs = projects.filter(p => p.id !== pid);
+                    setProjects(newProjs);
+                    if (activeProjectId === pid) setActiveProjectId(newProjs[0].id);
+                }
             };
 
-            // --- Palette Helper ---
             const addColorToPalette = (paletteId, newColor) => {
                 setLibrary(prev => prev.map(folder => {
                     if (folder.id === currentFolderId) {
                          const updatedPalettes = folder.palettes.map(p => {
-                             if(p.id === paletteId) {
-                                 // Avoid duplicates
-                                 if(!p.colors.includes(newColor)) {
-                                     return { ...p, colors: [...p.colors, newColor] };
-                                 }
+                             if(p.id === paletteId && !p.colors.includes(newColor)) {
+                                 return { ...p, colors: [...p.colors, newColor] };
                              }
                              return p;
                          });
@@ -1215,108 +1418,27 @@
                 }));
             };
 
-
-            // --- Image Import Logic ---
-            const processImportedFile = (file) => {
-                if (!file || !file.type.startsWith('image/')) return;
-                
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        openModal('imageImportOption', { img });
-                    };
-                    img.src = evt.target.result;
-                };
-                reader.readAsDataURL(file);
-            };
-
-            const handleImageImport = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    processImportedFile(file);
-                    e.target.value = null; // reset input
-                }
-            };
-
             const handlePaletteImageImport = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        setPaletteConfig({ img, count: 8, variety: false });
-                        openModal('paletteImportOptions');
-                    };
-                    img.src = evt.target.result;
-                };
-                reader.readAsDataURL(file);
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                setPaletteImportQueue(files);
+                // Set default settings then open modal
+                setPaletteConfig({ ...paletteConfig, count: 8, variety: false });
+                setModalConfig({ isOpen: true, type: 'paletteImportOptions' });
                 e.target.value = null;
             };
 
-
             const handleDrop = (e) => {
                 e.preventDefault();
-                const file = e.dataTransfer.files[0];
-                if (file) processImportedFile(file);
+                const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                if (files.length > 0) {
+                    setImportQueue(files);
+                    setModalConfig({ isOpen: true, type: 'batchImport' });
+                }
             };
 
             const handleDragOver = (e) => {
                 e.preventDefault();
-            };
-
-            const processImageImport = (mode, img) => {
-                // mode: 'new' (resize grid to fit) or 'current' (fit to current grid)
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                let targetSize = gridSize;
-                let newGridSize = gridSize;
-
-                if (mode === 'new') {
-                    // Determine best grid size
-                    // If huge image, we cap at reasonable default to avoid crash during resize calculation
-                    const maxDim = Math.max(img.width, img.height);
-                    newGridSize = Math.min(64, Math.ceil(maxDim / 10) * 10); 
-                    if (newGridSize < 16) newGridSize = 16;
-                    targetSize = newGridSize;
-                }
-
-                canvas.width = targetSize;
-                canvas.height = targetSize;
-                
-                // Draw and resize
-                ctx.drawImage(img, 0, 0, targetSize, targetSize);
-                const data = ctx.getImageData(0, 0, targetSize, targetSize).data;
-                
-                // Convert to pixels (Sparse Object)
-                const newPixels = {};
-                for(let i=0; i<data.length; i+=4) {
-                    if(data[i+3] > 10) { // Transparency check
-                        newPixels[i/4] = rgbToHex(data[i], data[i+1], data[i+2]);
-                    }
-                }
-
-                if (mode === 'new') {
-                    const newId = 'p' + Date.now();
-                    const newProj = createNewProjectData(newId, 'Imported Image', newGridSize);
-                    newProj.frames[0].layers[0].pixels = newPixels;
-                    newProj.history = [JSON.parse(JSON.stringify(newProj.frames))];
-                    newProj.historyIndex = 0;
-                    setProjects([...projects, newProj]);
-                    setActiveProjectId(newId);
-                } else {
-                    const newFrames = JSON.parse(JSON.stringify(frames));
-                    // Combine with current layer
-                    const currentPixels = newFrames[currentFrameIndex].layers.find(l=>l.id===activeLayerId).pixels;
-                    Object.entries(newPixels).forEach(([key, val]) => {
-                         currentPixels[key] = val;
-                    });
-                    saveHistory(newFrames);
-                }
-                closeModal();
             };
 
             const exportSheet = () => {
@@ -1344,20 +1466,15 @@
                 link.click();
             };
 
-            // Mobile Tab Logic
             const handleTabClick = (tabId) => {
                 if (window.innerWidth < 768) {
-                    // Mobile behavior
                     if (activeTab === tabId) {
-                        // If tapping active tab, toggle open/close
                         setIsMobilePanelOpen(!isMobilePanelOpen);
                     } else {
-                        // If tapping new tab, switch and open
                         setActiveTab(tabId);
                         setIsMobilePanelOpen(true);
                     }
                 } else {
-                    // Desktop behavior
                     setActiveTab(tabId);
                 }
             };
@@ -1373,9 +1490,7 @@
                 >
                     <SpaceBackground />
                     
-                    {/* Header with Banner Background */}
                     <header className="relative flex justify-between items-center z-20 mx-2 mt-2 rounded-xl overflow-hidden shadow-lg border border-tech-glow shrink-0 h-12 md:h-14 bg-space-900">
-                        {/* Background Image & Overlay */}
                         <div className="absolute inset-0 bg-cover bg-center z-0 hidden md:block" style={{backgroundImage: "url('Omni-Science Banner.jpg')"}}></div>
                         <div className="absolute inset-0 bg-space-900/90 md:bg-space-900/80 backdrop-blur-sm z-0"></div>
 
@@ -1388,6 +1503,9 @@
                             </div>
                             <div className="flex-1"></div>
                             <div className="flex items-center gap-1 md:gap-2">
+                                <div className="text-[10px] text-tech-400 font-mono hidden md:block">
+                                    {isSaving ? <div className="flex items-center gap-1"><div className="spinner"></div> Saving...</div> : <span className="opacity-50">Saved</span>}
+                                </div>
                                 <button onClick={undo} disabled={currentProject.historyIndex<=0} className="p-1 md:p-2 text-tech-400 hover:text-white disabled:opacity-30 transition-colors"><Icons.Undo /></button>
                                 <button onClick={redo} disabled={currentProject.historyIndex>=currentProject.history.length-1} className="p-1 md:p-2 text-tech-400 hover:text-white disabled:opacity-30 transition-colors"><Icons.Redo /></button>
                                 <div className="w-px h-4 md:h-6 bg-space-700 mx-1 md:mx-2"></div>
@@ -1395,12 +1513,11 @@
                                     {[16, 32, 64].map(s => <button key={s} onClick={() => openModal('confirm-resize', s)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${gridSize===s?'bg-tech-500 text-white shadow-[0_0_10px_rgba(6,182,212,0.5)]':'text-gray-400 hover:text-tech-400'}`}>{s}x</button>)}
                                     <button onClick={() => openModal('resize')} className="px-3 py-1 text-xs font-bold rounded-md text-gray-400 hover:text-tech-400 transition-colors">Custom</button>
                                 </div>
-                                {/* Mobile Resize Button */}
                                 <button onClick={() => openModal('resize')} className="md:hidden p-2 text-gray-300 hover:text-white bg-space-800 rounded-lg border border-space-600">
                                     <Icons.Resize />
                                 </button>
                                 
-                                <input type="file" ref={imageImportRef} className="hidden" accept="image/*" onChange={handleImageImport} />
+                                <input type="file" ref={imageImportRef} className="hidden" multiple accept="image/*" onChange={handleImageImport} />
                                 <button onClick={() => imageImportRef.current.click()} className="flex items-center gap-2 bg-space-800 hover:bg-space-700 text-gray-300 px-2 py-1 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-bold border border-space-600 transition-all">
                                     <Icons.Image /> <span className="hidden md:inline">Import</span>
                                 </button>
@@ -1411,7 +1528,6 @@
                         </div>
                     </header>
 
-                    {/* Tab Bar */}
                     <div className="flex items-center mx-2 mt-1 gap-1 overflow-x-auto hide-scrollbar z-10 shrink-0 h-10">
                         {projects.map(p => (
                             <div key={p.id} onClick={() => setActiveProjectId(p.id)}
@@ -1428,10 +1544,7 @@
                     </div>
 
                     <div className="flex flex-col md:flex-row flex-1 overflow-hidden p-2 gap-2 pt-0 z-10 relative min-h-0">
-                        {/* Tools Toolbar - Mobile: Top Scrollable / Desktop: Left Vertical */}
                         <aside className="w-full md:w-16 h-12 md:h-auto glass-panel rounded-xl flex flex-row md:flex-col items-center py-2 md:py-4 px-2 md:px-0 gap-3 z-20 overflow-x-auto md:overflow-y-auto hide-scrollbar relative shrink-0 order-1">
-                            
-                            {/* Mobile Tool Settings Toggle */}
                             <button className="md:hidden flex-shrink-0 p-2 rounded-xl transition-all relative text-tech-400 hover:bg-space-700" onClick={() => setIsMobileToolOptionsOpen(!isMobileToolOptionsOpen)}>
                                 <Icons.Gear />
                             </button>
@@ -1469,7 +1582,6 @@
                              <button onClick={() => openModal('clear')} className="text-red-400 hover:bg-red-900/30 p-2 rounded transition-colors flex-shrink-0"><Icons.Trash /></button>
                         </aside>
 
-                        {/* Mobile Tool Options Panel */}
                         {isMobileToolOptionsOpen && (
                             <div className="absolute top-14 left-2 right-2 z-40 bg-space-800 border border-tech-glow rounded-xl p-3 flex flex-col gap-3 shadow-2xl md:hidden">
                                 <div className="flex justify-between items-center border-b border-space-700 pb-2 mb-1">
@@ -1481,7 +1593,6 @@
                                 </div>
                                 
                                 <div className="space-y-3">
-                                    {/* Brush Size for applicable tools (Hidden for Bucket) */}
                                     {['pencil', 'eraser', 'lighten', 'dither'].includes(tool) && (
                                         <div className="space-y-1">
                                             <div className="flex justify-between text-[10px] text-gray-400">
@@ -1493,8 +1604,6 @@
                                             </div>
                                         </div>
                                     )}
-
-                                    {/* Opacity for applicable tools (Visible for Bucket) */}
                                     {['pencil', 'eraser', 'lighten', 'dither', 'bucket', 'bucket_all'].includes(tool) && (
                                         <div className="space-y-1">
                                             <div className="flex justify-between text-[10px] text-gray-400">
@@ -1504,8 +1613,6 @@
                                         </div>
                                     )}
                                 </div>
-
-                                {/* Mirror Mode (Available for all drawing tools) */}
                                 <div className="space-y-1">
                                     <span className="text-[10px] text-gray-400 uppercase">Mirror Mode</span>
                                     <div className="flex gap-2">
@@ -1517,16 +1624,12 @@
                                         ))}
                                     </div>
                                 </div>
-
-                                {/* Pan Mode Toggle */}
                                 <div className="flex items-center justify-between pt-2 border-t border-space-700">
                                     <span className="text-xs text-gray-300">Pan Mode (Drag)</span>
                                     <button onClick={() => setPanMode(!panMode)} className={`w-10 h-5 rounded-full relative transition-colors ${panMode ? 'bg-tech-500' : 'bg-space-600'}`}>
                                         <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${panMode ? 'left-6' : 'left-1'}`}></div>
                                     </button>
                                 </div>
-
-                                {/* Lighten/Darken Toggle - Only show for Lighten tool */}
                                 {tool === 'lighten' && (
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs text-gray-300">Mode: {darkenMode ? 'Darken' : 'Lighten'}</span>
@@ -1535,17 +1638,9 @@
                                         </button>
                                     </div>
                                 )}
-
-                                {/* Generic Tool Description (Visible for ALL tools on mobile now) */}
-                                {tool !== 'lighten' && (
-                                    <div className="text-[10px] text-gray-500 italic mt-1 border-t border-space-700 pt-2">
-                                        {currentToolDef?.desc || "No extra options for this tool."}
-                                    </div>
-                                )}
                             </div>
                         )}
 
-                        {/* Main Canvas Area */}
                         <main className="flex-1 relative overflow-hidden rounded-xl border border-space-700 bg-space-900/30 backdrop-blur-sm order-2 md:order-2 canvas-touch-area min-h-0" 
                             onPointerDown={handlePointerDown} 
                             onPointerMove={handlePointerMove} 
@@ -1566,7 +1661,6 @@
                                         cursor: isPanning.current || panMode ? 'grabbing' : 'crosshair',
                                         boxShadow: '0 0 0 1px rgba(255,255,255,0.1)'
                                     }}>
-                                    {/* Canvas size is now exactly gridSize. Scaling handled by CSS scale() */}
                                     <canvas ref={canvasRef} width={gridSize} height={gridSize} className="w-full h-full block" />
                                 </div>
                             </div>
@@ -1585,16 +1679,13 @@
                             </div>
                         </main>
 
-                        {/* Right Panel - Mobile: Collapsible Drawer / Desktop: Right Side */}
                         <aside className={`fixed bottom-0 left-0 right-0 z-30 flex flex-col glass-panel transition-all duration-300 md:relative md:w-72 md:h-auto md:z-10 md:order-3 md:rounded-xl md:bg-opacity-100 md:translate-y-0
                             ${isMobilePanelOpen ? 'h-[65vh] rounded-t-xl' : 'h-6 rounded-t-xl md:h-auto'}`}>
                             
-                            {/* Drawer Toggle Handle (Mobile Only) */}
                             <div className="md:hidden flex justify-center items-center h-6 w-full cursor-pointer bg-space-800/80 hover:bg-space-700/80 rounded-t-xl border-t border-x border-tech-glow/30" onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}>
                                 {isMobilePanelOpen ? <Icons.ChevronDown /> : <Icons.ChevronUp />}
                             </div>
 
-                            {/* Color & Brush Settings - Hidden when mobile drawer collapsed */}
                             <div className={`p-3 md:p-4 border-b border-space-700 ${!isMobilePanelOpen ? 'hidden md:block' : ''}`}>
                                 <div className="flex justify-between items-end mb-2">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Color</span>
@@ -1605,7 +1696,6 @@
                                         <input type="color" value={color} onChange={e => { setColor(e.target.value); }} className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer p-0 border-0 opacity-0" />
                                         <div className="w-full h-full" style={{backgroundColor: color}}></div>
                                     </div>
-                                    {/* Size/Opacity - HIDDEN ON MOBILE (Moved to Tool Options) */}
                                     <div className="flex-1 space-y-1 md:space-y-2 hidden md:block">
                                         <div>
                                             <div className="flex justify-between text-[10px] text-gray-400 mb-px"><span>SIZE</span><span>{brushSize}px</span></div>
@@ -1627,7 +1717,6 @@
                                 </div>
                             </div>
 
-                            {/* Tabs Navigation */}
                             <div className={`flex border-b border-space-700 ${!isMobilePanelOpen ? 'hidden md:flex' : ''}`}>
                                 {['layers', 'palettes', 'animate'].map(tab => (
                                     <button key={tab} 
@@ -1638,7 +1727,6 @@
                                 ))}
                             </div>
 
-                            {/* Tab Content */}
                             <div className={`flex-1 overflow-y-auto p-2 ${!isMobilePanelOpen ? 'hidden md:block' : ''}`}>
                                 
                                 {activeTab === 'layers' && (
@@ -1672,20 +1760,18 @@
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center px-1">
                                             <span className="text-xs text-gray-400 uppercase font-bold">Library</span>
-                                            <input type="file" ref={paletteImageImportRef} className="hidden" accept="image/*" onChange={handlePaletteImageImport} />
+                                            <input type="file" ref={paletteImageImportRef} multiple className="hidden" accept="image/*" onChange={handlePaletteImageImport} />
                                             <div className="flex gap-1">
                                                 <button onClick={() => paletteImageImportRef.current.click()} className="p-1 text-gray-400 hover:text-white" title="Import from Image"><Icons.Image /></button>
                                                 <button onClick={() => openModal('newFolder')} className="p-1 text-gray-400 hover:text-white"><Icons.Folder /></button>
                                             </div>
                                         </div>
                                         
-                                        {/* Folder Select */}
                                         <select value={currentFolderId} onChange={e => setCurrentFolderId(e.target.value)} 
                                             className="w-full bg-space-800 border border-space-600 rounded p-1 text-xs text-gray-300 outline-none focus:border-tech-500">
                                             {library.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                                         </select>
 
-                                        {/* Palettes in current folder */}
                                         <div className="space-y-3">
                                             <button onClick={() => openModal('newPalette')} className="w-full py-2 border-2 border-dashed border-space-600 rounded-lg text-xs text-gray-500 hover:border-tech-500 hover:text-tech-400 transition-all">
                                                 + New Palette
@@ -1705,9 +1791,6 @@
                                                             <div key={i} className="group relative w-6 h-6 rounded cursor-pointer border border-transparent hover:border-white hover:scale-110 transition-all"
                                                                 style={{backgroundColor: c}}
                                                                 onClick={() => setColor(c)}>
-                                                                <div className="hidden group-hover:flex absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-[10px] px-1 rounded text-white z-50 pointer-events-none">
-                                                                    {c}
-                                                                </div>
                                                                 <button onClick={(e) => { e.stopPropagation(); removeColorFromPalette(pal.id, c); }} 
                                                                     className="hidden group-hover:flex absolute -bottom-2 -right-2 bg-red-500 w-3 h-3 rounded-full items-center justify-center text-[8px] text-white">x</button>
                                                             </div>
@@ -1755,7 +1838,6 @@
                                                     <div key={f.id} onClick={() => { setIsPlaying(false); setCurrentFrameIndex(i); }}
                                                         className={`relative aspect-square bg-space-800 rounded border cursor-pointer group ${currentFrameIndex === i ? 'border-tech-400 shadow-[0_0_10px_rgba(34,211,238,0.2)]' : 'border-space-700 hover:border-gray-500'}`}>
                                                         <div className="absolute top-1 left-1 text-[8px] bg-black/50 px-1 rounded text-gray-300">{i+1}</div>
-                                                        {/* Mini preview logic could go here */}
                                                         <div className="w-full h-full flex items-center justify-center text-xs text-gray-600 font-mono">
                                                             FRM
                                                         </div>
@@ -1776,23 +1858,24 @@
                         </aside>
                     </div>
 
-                    {/* Modals */}
                     <Modal isOpen={modalConfig.isOpen} 
                            title={
                                modalConfig.type === 'newFolder' ? 'New Folder' : 
                                modalConfig.type === 'newPalette' ? 'Save Palette' : 
                                modalConfig.type === 'resize' ? 'Resize Canvas' :
-                               modalConfig.type === 'confirm-resize' ? 'Confirm Resize' :
+                               modalConfig.type === 'confirm-resize' ? 'Resize Canvas' :
                                modalConfig.type === 'newProject' ? 'New Project' :
                                modalConfig.type === 'addSwatch' ? 'Add Swatch' :
                                modalConfig.type === 'imageImportOption' ? 'Import Mode' :
                                modalConfig.type === 'paletteImportOptions' ? 'Palette Settings' :
+                               modalConfig.type === 'batchImport' ? 'Import Images' :
                                'Confirm Action'
                            }
                            showConfirm={modalConfig.type !== 'imageImportOption'}
                            confirmText={
                                 modalConfig.type === 'newProject' ? 'Create' :
                                 modalConfig.type === 'addSwatch' ? 'Add' :
+                                modalConfig.type === 'batchImport' ? 'Import All' :
                                 'Confirm'
                            }
                            onClose={closeModal} 
@@ -1804,8 +1887,9 @@
                                 value={inputValue} onChange={e => setInputValue(e.target.value)} />
                         )}
                         
-                        {modalConfig.type === 'resize' && (
+                        {(modalConfig.type === 'resize' || modalConfig.type === 'confirm-resize') && (
                             <div className="space-y-4">
+                                <p className="text-xs text-gray-400">Resizing will scale your current artwork.</p>
                                 <div className="flex gap-2 justify-between">
                                     {[16, 32, 64].map(size => (
                                         <button key={size} 
@@ -1819,33 +1903,6 @@
                                     <label className="text-xs text-gray-400 mb-1 block">Custom Size</label>
                                     <input type="number" min="1"
                                         className="w-full bg-space-900 border border-space-600 p-2 rounded text-white outline-none focus:border-tech-500"
-                                        value={inputNumberValue} onChange={e => setInputNumberValue(parseInt(e.target.value))} />
-                                </div>
-                                <p className="text-xs text-red-400 mt-2">Warning: Resizing will clear the current artwork.</p>
-                            </div>
-                        )}
-
-                        {modalConfig.type === 'newProject' && (
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Project Name</label>
-                                    <input type="text" placeholder="My Awesome Art" autoFocus
-                                        className="w-full bg-space-900 border border-space-600 p-2 rounded text-white outline-none focus:border-tech-500"
-                                        value={inputValue} onChange={e => setInputValue(e.target.value)} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs text-gray-400 block">Canvas Size</label>
-                                    <div className="flex gap-2 justify-between">
-                                        {[16, 32, 64].map(size => (
-                                            <button key={size} 
-                                                onClick={() => setInputNumberValue(size)}
-                                                className={`flex-1 py-2 rounded border text-sm font-bold transition-all ${inputNumberValue === size ? 'bg-tech-500 border-tech-400 text-white' : 'bg-space-900 border-space-600 text-gray-400 hover:bg-space-700'}`}>
-                                                {size}x
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <input type="number" min="8"
-                                        className="w-full bg-space-900 border border-space-600 p-2 rounded text-white outline-none focus:border-tech-500 text-center"
                                         value={inputNumberValue} onChange={e => setInputNumberValue(parseInt(e.target.value))} />
                                 </div>
                             </div>
@@ -1873,7 +1930,9 @@
 
                         {modalConfig.type === 'paletteImportOptions' && (
                             <div className="space-y-4">
-                                <p className="text-sm text-gray-400">Settings for extracting colors from your image.</p>
+                                <p className="text-sm text-gray-400">
+                                    {paletteImportQueue.length > 1 ? `Batch importing ${paletteImportQueue.length} images to library.` : 'Settings for extracting colors from your image.'}
+                                </p>
                                 
                                 <div>
                                     <div className="flex justify-between text-xs text-gray-400 mb-1">
@@ -1897,29 +1956,75 @@
                                 </div>
                             </div>
                         )}
+                        
+                        {/* New Batch Import Modal */}
+                        {modalConfig.type === 'batchImport' && (
+                            <div className="space-y-4">
+                                <div className="bg-space-900 p-2 rounded border border-space-600 text-xs text-gray-300">
+                                    Selected: <span className="text-tech-400 font-bold">{importQueue.length} files</span>
+                                </div>
 
-                        {modalConfig.type === 'imageImportOption' && (
-                            <div className="flex flex-col gap-3">
-                                <button onClick={() => processImageImport('new', modalConfig.data.img)} className="p-3 bg-space-900 hover:bg-space-700 border border-space-600 rounded text-left">
-                                    <div className="font-bold text-tech-400">New Project</div>
-                                    <div className="text-xs text-gray-400">Resize canvas to fit image</div>
-                                </button>
-                                <button onClick={() => processImageImport('current', modalConfig.data.img)} className="p-3 bg-space-900 hover:bg-space-700 border border-space-600 rounded text-left">
-                                    <div className="font-bold text-white">Current Layer</div>
-                                    <div className="text-xs text-gray-400">Stamp onto current canvas size</div>
-                                </button>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase">Import Mode</label>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="flex items-center gap-2 p-2 bg-space-900 rounded border border-space-700 cursor-pointer hover:border-tech-500">
+                                            <input type="radio" name="importMode" checked={batchSettings.mode === 'frames'} 
+                                                onChange={() => setBatchSettings(s => ({...s, mode: 'frames'}))} 
+                                                className="accent-tech-500"/>
+                                            <div>
+                                                <div className="text-sm font-bold text-gray-200">As Animation Frames</div>
+                                                <div className="text-[10px] text-gray-500">Add to current project timeline</div>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-center gap-2 p-2 bg-space-900 rounded border border-space-700 cursor-pointer hover:border-tech-500">
+                                            <input type="radio" name="importMode" checked={batchSettings.mode === 'layers'} 
+                                                onChange={() => setBatchSettings(s => ({...s, mode: 'layers'}))} 
+                                                className="accent-tech-500"/>
+                                            <div>
+                                                <div className="text-sm font-bold text-gray-200">As Layers</div>
+                                                <div className="text-[10px] text-gray-500">Add to current frame as new layers</div>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-center gap-2 p-2 bg-space-900 rounded border border-space-700 cursor-pointer hover:border-tech-500">
+                                            <input type="radio" name="importMode" checked={batchSettings.mode === 'projects'} 
+                                                onChange={() => setBatchSettings(s => ({...s, mode: 'projects'}))} 
+                                                className="accent-tech-500"/>
+                                            <div>
+                                                <div className="text-sm font-bold text-gray-200">As New Projects</div>
+                                                <div className="text-[10px] text-gray-500">Create a separate project for each image</div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase">Resize Options</label>
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        {['original', '16', '32', '64'].map(r => (
+                                            <button key={r} onClick={() => setBatchSettings(s => ({...s, resize: r}))}
+                                                className={`py-1 rounded text-xs border ${batchSettings.resize === r ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>
+                                                {r === 'original' ? 'Original Size' : `${r}x${r}`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                         <button onClick={() => setBatchSettings(s => ({...s, resize: 'custom'}))}
+                                            className={`flex-1 py-1 rounded text-xs border ${batchSettings.resize === 'custom' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>
+                                            Custom
+                                         </button>
+                                         <input type="number" value={batchSettings.customSize} onChange={e => setBatchSettings(s => ({...s, customSize: parseInt(e.target.value)}))}
+                                            disabled={batchSettings.resize !== 'custom'}
+                                            className="w-16 bg-space-900 border border-space-600 rounded p-1 text-xs text-center text-white"/>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
-                        {modalConfig.type === 'confirm-resize' && (
-                             <p className="text-gray-300">Are you sure? This will clear your current artwork.</p>
-                        )}
                         {modalConfig.type === 'clear' && (
                              <p className="text-gray-300">Clear the current layer? This cannot be fully undone if history limit is reached.</p>
                         )}
                     </Modal>
 
-                    {/* Tooltip */}
                     {tooltip && (
                         <div className="fixed z-50 bg-black/90 text-white text-xs px-2 py-1 rounded pointer-events-none border border-space-600"
                             style={{ top: tooltip.top, left: tooltip.left }}>
