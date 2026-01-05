@@ -345,6 +345,7 @@
             Dither: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="18" y="2" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="14" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/><rect x="18" y="10" width="4" height="4"/><rect x="6" y="14" width="4" height="4"/><rect x="14" y="14" width="4" height="4"/><rect x="2" y="18" width="4" height="4"/><rect x="10" y="18" width="4" height="4"/><rect x="18" y="18" width="4" height="4"/></svg>,
             Lighten: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>,
             MovePixels: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>,
+            Select: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2" strokeDasharray="3 3"/><path d="M8 12h8"/></svg>,
             Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
             Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>,
             Eye: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
@@ -387,6 +388,19 @@
             const c1 = hexToRgb(hex1.substring(0, 7));
             const c2 = hexToRgb(hex2.substring(0, 7));
             return Math.sqrt(Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2));
+        };
+
+        const getAlphaByte = (hex) => {
+            if (typeof hex !== 'string') return 0;
+            return (hex.length >= 9) ? parseInt(hex.substring(7, 9), 16) : 255;
+        };
+
+        const colorsSimilar = (a, b, tol) => {
+            if (!a || !b) return false;
+            if (!tol || tol <= 0) return a === b;
+            const d = getColorDistance(a, b);
+            const da = Math.abs(getAlphaByte(a) - getAlphaByte(b));
+            return d <= tol && da <= tol;
         };
 
         const Modal = ({ isOpen, title, children, onClose, onConfirm, showConfirm = true, confirmText = 'OK' }) => {
@@ -520,6 +534,8 @@
             const [brushSize, setBrushSize] = useState(1);
             const [toolOpacity, setToolOpacity] = useState(100);
             const [toolSoftness, setToolSoftness] = useState(0); 
+            // Tolerance (0..255-ish) used for color-based selection and operations (bucket, lighten/darken, smart select, etc.)
+            const [tolerance, setTolerance] = useState(0);
             const [mirrorMode, setMirrorMode] = useState('none');
             const [recentColors, setRecentColors] = useState(['#00eaff', '#ff00ff', '#ffffff', '#000000', '#2a2a2a']);
             
@@ -527,6 +543,14 @@
             const [ditherShift, setDitherShift] = useState(false); // Dither Direction
             const [fillMode, setFillMode] = useState('contiguous'); // Bucket Mode: 'contiguous' or 'global'
             const [moveMode, setMoveMode] = useState('connected'); // Move Mode: 'connected' (connected-any), 'connected_color', 'color', 'all'
+
+            // Selection tool state
+            const [selectMode, setSelectMode] = useState('rect'); // 'rect' | 'ellipse' | 'lasso' | 'smart'
+            const [smartSelectMode, setSmartSelectMode] = useState('connected'); // 'connected' | 'connected_color' | 'all_painted'
+            const selectionRef = useRef(new Set());
+            const [selectionVersion, setSelectionVersion] = useState(0);
+            const selectionPreviewRef = useRef(null); // { type, start:{x,y}, end:{x,y}, points? }
+            const selectionDragRef = useRef({ isSelecting: false, start: null, points: [], mode: null });
             
             const [isPlaying, setIsPlaying] = useState(false);
             const [onionSkin, setOnionSkin] = useState(false);
@@ -603,6 +627,7 @@
                 { id: 'eraser', icon: Icons.Eraser, label: 'Eraser', binding: 'E', desc: 'Clear pixels' },
                 { id: 'dropper', icon: Icons.EyeDropper, label: 'Picker', binding: 'I', desc: 'Click to sample color' },
                 { id: 'bucket', icon: Icons.Bucket, label: 'Bucket', binding: 'F', desc: 'Fill Connected or All' },
+                { id: 'select', icon: Icons.Select, label: 'Select', binding: 'S', desc: 'Make selections' },
                 { id: 'move_pixels', icon: Icons.MovePixels, label: 'Move', binding: 'M', desc: 'Move pixels' },
                 { id: 'line', icon: Icons.Line, label: 'Line', binding: 'L', desc: 'Draw lines' },
                 { id: 'rect', icon: Icons.Rect, label: 'Rect', binding: 'R', desc: 'Draw rectangles' },
@@ -611,6 +636,54 @@
                 { id: 'lighten', icon: Icons.Lighten, label: 'Light/Dark', binding: 'H', desc: 'Shift: Darken' },
             ];
             const currentToolDef = TOOLS.find(t => t.id === tool);
+
+            // --- Tooltip Shortcut Helpers ---
+            // These are the keyboard shortcuts available on desktop. Keep in sync with the keydown handler.
+            const getToolShortcutLines = (toolId) => {
+                const lines = [];
+
+                // Global shortcuts (relevant for all tools)
+                lines.push('Ctrl+Z: Undo');
+                lines.push('Ctrl+Y: Redo');
+
+                // Tool-specific modifiers / settings
+                if (toolId === 'lighten') {
+                    lines.push('G: Cycle target (Pixel / Color / All)');
+                    lines.push('Shift (hold): Darken');
+                }
+
+                if (toolId === 'bucket') {
+                    lines.push('Mode: Contiguous / Global (Tool Options)');
+                }
+
+                if (toolId === 'move_pixels') {
+                    lines.push('Mode: Connected / Connected Color / Global Color / All Pixels (Tool Options)');
+                }
+
+                if (toolId === 'select') {
+                    lines.push('1: Rectangle select');
+                    lines.push('2: Ellipse select');
+                    lines.push('3: Lasso select');
+                    lines.push('4: Smart mode (cycle)');
+                    lines.push('Esc: Clear selection');
+                    lines.push('Tolerance: affects Smart/Fill/Color ops (Tool Options)');
+                }
+
+                if (toolId === 'dither') {
+                    lines.push('Pattern Shift (Tool Options)');
+                }
+
+                // Shape tools share common brush settings
+                if (['pencil','eraser','dither','line','rect','circle'].includes(toolId)) {
+                    lines.push('Brush: Size / Opacity / Softness (Tool Options)');
+                }
+
+                if (toolId === 'dropper') {
+                    lines.push('Tip: Click to pick, then returns to Pencil');
+                }
+
+                return lines;
+            };
 
             // --- Brush Stamp Pre-calc ---
             // Returns a list of points with a weight in [0..1] representing softness falloff (and custom brush alpha).
@@ -850,10 +923,30 @@
                         case 'd': setTool('dither'); break;
                         case 'i': setTool('dropper'); break;
                         case 'h': setTool('lighten'); break;
+                        case 's': setTool('select'); break;
                         case 'g': 
                             if(tool === 'lighten') {
                                 setLightenMode(prev => prev === 'pixel' ? 'color' : prev === 'color' ? 'all' : 'pixel');
                             }
+                            break;
+                        case 'escape':
+                            // Clear selection / preview
+                            selectionRef.current = new Set();
+                            selectionPreviewRef.current = null;
+                            selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
+                            setSelectionVersion(v => v + 1);
+                            break;
+                        case '1':
+                            if (tool === 'select') { e.preventDefault(); setSelectMode('rect'); }
+                            break;
+                        case '2':
+                            if (tool === 'select') { e.preventDefault(); setSelectMode('ellipse'); }
+                            break;
+                        case '3':
+                            if (tool === 'select') { e.preventDefault(); setSelectMode('lasso'); }
+                            break;
+                        case '4':
+                            if (tool === 'select') { e.preventDefault(); setSelectMode('smart'); }
                             break;
                     }
                 };
@@ -1050,6 +1143,81 @@
                         }
                     });
                     ctx.globalAlpha = 1.0;
+                }
+
+                // Selection Overlay (non-destructive)
+                // Draws an overlay for the current selection and any in-progress selection preview.
+                const drawSelectionSet = (selSet, opts = {}) => {
+                    if (!selSet || selSet.size === 0) return;
+                    const fill = opts.fill || 'rgba(6,182,212,0.18)';
+                    const stroke = opts.stroke || 'rgba(6,182,212,0.65)';
+                    const lineW = opts.lineW || 0.08;
+                    ctx.save();
+                    ctx.fillStyle = fill;
+                    selSet.forEach(idx => {
+                        const px = idx % gridSize;
+                        const py = Math.floor(idx / gridSize);
+                        ctx.fillRect(px, py, 1, 1);
+                    });
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = lineW;
+                    // Outline only boundary cells to reduce visual noise.
+                    selSet.forEach(idx => {
+                        const px = idx % gridSize;
+                        const py = Math.floor(idx / gridSize);
+                        const left = idx - 1;
+                        const right = idx + 1;
+                        const up = idx - gridSize;
+                        const down = idx + gridSize;
+                        const onEdge =
+                            (px === 0 || !selSet.has(left)) ||
+                            (px === gridSize - 1 || !selSet.has(right)) ||
+                            (py === 0 || !selSet.has(up)) ||
+                            (py === gridSize - 1 || !selSet.has(down));
+                        if (onEdge) ctx.strokeRect(px + 0.02, py + 0.02, 0.96, 0.96);
+                    });
+                    ctx.restore();
+                };
+
+                // Draw committed selection
+                if (selectionRef.current && selectionRef.current.size > 0) {
+                    drawSelectionSet(selectionRef.current);
+                }
+
+                // Draw selection preview (rect/ellipse/lasso)
+                if (selectionPreviewRef.current) {
+                    const pv = selectionPreviewRef.current;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                    ctx.lineWidth = 0.1;
+                    ctx.setLineDash([0.25, 0.25]);
+
+                    if (pv.type === 'lasso' && Array.isArray(pv.points) && pv.points.length > 1) {
+                        ctx.beginPath();
+                        ctx.moveTo(pv.points[0].x + 0.5, pv.points[0].y + 0.5);
+                        for (let i = 1; i < pv.points.length; i++) ctx.lineTo(pv.points[i].x + 0.5, pv.points[i].y + 0.5);
+                        ctx.stroke();
+                    } else {
+                        const x0 = Math.min(pv.start.x, pv.end.x);
+                        const y0 = Math.min(pv.start.y, pv.end.y);
+                        const x1 = Math.max(pv.start.x, pv.end.x);
+                        const y1 = Math.max(pv.start.y, pv.end.y);
+                        const w = x1 - x0 + 1;
+                        const h = y1 - y0 + 1;
+                        if (pv.type === 'ellipse') {
+                            const cx = x0 + w / 2;
+                            const cy = y0 + h / 2;
+                            const rx = Math.max(0.5, w / 2);
+                            const ry = Math.max(0.5, h / 2);
+                            ctx.beginPath();
+                            ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+                            ctx.stroke();
+                        } else {
+                            ctx.strokeRect(x0, y0, w, h);
+                        }
+                    }
+
+                    ctx.restore();
                 }
 
                 // Preview Cursor
@@ -1554,6 +1722,94 @@
 
                 const { x, y } = getCoordinates(e);
 
+                // --- Selection Tool ---
+                if (tool === 'select') {
+                    if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) {
+                        selectionPreviewRef.current = null;
+                        setSelectionVersion(v => v + 1);
+                        scheduleRender();
+                        return;
+                    }
+
+                    // Smart selection resolves immediately on click.
+                    if (selectMode === 'smart') {
+                        const basePixels = activeLayer.pixels;
+                        const clickedIdx = y * gridSize + x;
+                        const clickedColor = basePixels[clickedIdx];
+                        const out = new Set();
+
+                        if (smartSelectMode === 'all_painted') {
+                            currentFrame.layers.forEach(l => {
+                                if (!l.visible || !l.pixels) return;
+                                Object.keys(l.pixels).forEach(k => out.add(parseInt(k)));
+                            });
+                        } else if (smartSelectMode === 'connected') {
+                            if (clickedColor) {
+                                const stack = [{ x, y }];
+                                const visited = new Set();
+                                let safety = 0;
+                                while (stack.length) {
+                                    if (++safety > 500000) break;
+                                    const { x: cx, y: cy } = stack.pop();
+                                    const key = `${cx},${cy}`;
+                                    if (visited.has(key)) continue;
+                                    visited.add(key);
+                                    if (cx < 0 || cy < 0 || cx >= gridSize || cy >= gridSize) continue;
+                                    const idx = cy * gridSize + cx;
+                                    if (!basePixels[idx]) continue;
+                                    out.add(idx);
+                                    stack.push({ x: cx + 1, y: cy });
+                                    stack.push({ x: cx - 1, y: cy });
+                                    stack.push({ x: cx, y: cy + 1 });
+                                    stack.push({ x: cx, y: cy - 1 });
+                                }
+                            }
+                        } else if (smartSelectMode === 'connected_color') {
+                            if (clickedColor) {
+                                const stack = [{ x, y }];
+                                const visited = new Set();
+                                let safety = 0;
+                                while (stack.length) {
+                                    if (++safety > 500000) break;
+                                    const { x: cx, y: cy } = stack.pop();
+                                    const key = `${cx},${cy}`;
+                                    if (visited.has(key)) continue;
+                                    visited.add(key);
+                                    if (cx < 0 || cy < 0 || cx >= gridSize || cy >= gridSize) continue;
+                                    const idx = cy * gridSize + cx;
+                                    const pxCol = basePixels[idx];
+                                    if (!pxCol || !colorsSimilar(pxCol, clickedColor, tolerance)) continue;
+                                    out.add(idx);
+                                    stack.push({ x: cx + 1, y: cy });
+                                    stack.push({ x: cx - 1, y: cy });
+                                    stack.push({ x: cx, y: cy + 1 });
+                                    stack.push({ x: cx, y: cy - 1 });
+                                }
+                            }
+                        }
+
+                        selectionRef.current = out;
+                        selectionPreviewRef.current = null;
+                        selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
+                        setSelectionVersion(v => v + 1);
+                        scheduleRender();
+                        return;
+                    }
+
+                    // Drag-based selection (rect/ellipse/lasso)
+                    selectionDragRef.current = { isSelecting: true, start: { x, y }, points: [{ x, y }], mode: selectMode };
+                    if (selectMode === 'lasso') {
+                        selectionPreviewRef.current = { type: 'lasso', start: { x, y }, end: { x, y }, points: [{ x, y }] };
+                    } else {
+                        selectionPreviewRef.current = { type: selectMode, start: { x, y }, end: { x, y } };
+                    }
+
+                    isDrawing.current = true;
+                    lastPos.current = { x, y };
+                    scheduleRender();
+                    return;
+                }
+
                 if (tool === 'move_pixels') {
                     // Move tool uses a floating selection. This handler either starts dragging an existing selection,
                     // or creates a new selection based on the configured mode.
@@ -1594,7 +1850,21 @@
                     const basePixels = activeLayer.pixels;
                     const targetColor = basePixels[y * gridSize + x];
 
-                    if (moveMode === 'all') {
+                    // If a selection exists (from the Selection tool), convert it to a floating selection.
+                    if (selectionRef.current && selectionRef.current.size > 0) {
+                        selectionRef.current.forEach((idx) => {
+                            const colHex = basePixels[idx];
+                            if (!colHex) return;
+                            const px = idx % gridSize;
+                            const py = Math.floor(idx / gridSize);
+                            selectedPixels.push({ x: px, y: py, color: colHex });
+                        });
+                        // Clear selection once it's been consumed by the move tool.
+                        selectionRef.current = new Set();
+                        setSelectionVersion(v => v + 1);
+                    }
+
+                    if (selectedPixels.length === 0 && moveMode === 'all') {
                         // Move all non-empty pixels on the active layer.
                         for (let row = 0; row < gridSize; row++) {
                             for (let col = 0; col < gridSize; col++) {
@@ -1603,16 +1873,16 @@
                                 if (colHex) selectedPixels.push({ x: col, y: row, color: colHex });
                             }
                         }
-                    } else if (moveMode === 'color' && targetColor) {
+                    } else if (selectedPixels.length === 0 && moveMode === 'color' && targetColor) {
                         // Move all pixels matching the clicked color across the canvas.
                         for (let row = 0; row < gridSize; row++) {
                             for (let col = 0; col < gridSize; col++) {
                                 const idx = row * gridSize + col;
                                 const colHex = basePixels[idx];
-                                if (colHex === targetColor) selectedPixels.push({ x: col, y: row, color: colHex });
+                                if (colHex && colorsSimilar(colHex, targetColor, tolerance)) selectedPixels.push({ x: col, y: row, color: colHex });
                             }
                         }
-                    } else if (moveMode === 'connected_color' && targetColor) {
+                    } else if (selectedPixels.length === 0 && moveMode === 'connected_color' && targetColor) {
                         // Move connected pixels of the clicked color (4-neighbor flood fill).
                         const stack = [{ x, y }];
                         const visited = new Set();
@@ -1623,14 +1893,15 @@
                             visited.add(key);
                             if (cx < 0 || cy < 0 || cx >= gridSize || cy >= gridSize) continue;
                             const idx = cy * gridSize + cx;
-                            if (basePixels[idx] !== targetColor) continue;
+                            const pxCol = basePixels[idx];
+                            if (!pxCol || !colorsSimilar(pxCol, targetColor, tolerance)) continue;
                             selectedPixels.push({ x: cx, y: cy, color: basePixels[idx] });
                             stack.push({ x: cx + 1, y: cy });
                             stack.push({ x: cx - 1, y: cy });
                             stack.push({ x: cx, y: cy + 1 });
                             stack.push({ x: cx, y: cy - 1 });
                         }
-                    } else if (moveMode === 'connected') {
+                    } else if (selectedPixels.length === 0 && moveMode === 'connected') {
                         // Move all connected non-empty pixels (any color) (4-neighbor flood fill).
                         const stack = [{ x, y }];
                         const visited = new Set();
@@ -1727,7 +1998,7 @@
                         const targetColor = activeLayer.pixels[y*gridSize+x];
                         if (targetColor) {
                             Object.keys(newPixels).forEach(k => {
-                                if (newPixels[k] === targetColor) newPixels[k] = adjustBrightness(newPixels[k], amount);
+                                if (colorsSimilar(newPixels[k], targetColor, tolerance)) newPixels[k] = adjustBrightness(newPixels[k], amount);
                             });
                             const newFrames = JSON.parse(JSON.stringify(frames));
                             newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
@@ -1753,7 +2024,17 @@
                     
                     const newPixels = {...activeLayer.pixels};
                     if (fillMode === 'global') {
-                        Object.keys(newPixels).forEach(key => { if (newPixels[key] === targetColor) newPixels[key] = fillCol; });
+                        if (targetColor) {
+                            Object.keys(newPixels).forEach(key => {
+                                if (colorsSimilar(newPixels[key], targetColor, tolerance)) newPixels[key] = fillCol;
+                            });
+                        } else {
+                            // Global fill of empty space: must iterate full grid.
+                            const total = gridSize * gridSize;
+                            for (let i = 0; i < total; i++) {
+                                if (!newPixels[i]) newPixels[i] = fillCol;
+                            }
+                        }
                     } else {
                         const stack = [{x, y}]; const visited = new Set(); let safety = 0;
                         while(stack.length) {
@@ -1761,7 +2042,11 @@
                             const {x: cx, y: cy} = stack.pop();
                             const key = `${cx},${cy}`; if(visited.has(key)) continue; visited.add(key);
                             const idx = cy*gridSize+cx;
-                            if((newPixels[idx] || undefined) === (targetColor || undefined)) {
+                            const pxCol = newPixels[idx];
+                            const match = targetColor
+                                ? (pxCol && colorsSimilar(pxCol, targetColor, tolerance))
+                                : (!pxCol);
+                            if (match) {
                                 newPixels[idx] = fillCol;
                                 if(cx>0) stack.push({x: cx-1, y: cy}); if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
                                 if(cy>0) stack.push({x: cx, y: cy-1}); if(cy<gridSize-1) stack.push({x: cx, y: cy+1});
@@ -1810,6 +2095,24 @@
                 scheduleRender();
 
                 if (!isDrawing.current) return;
+
+                if (tool === 'select') {
+                    const drag = selectionDragRef.current;
+                    if (!drag || !drag.isSelecting || !drag.start) return;
+
+                    const mode = drag.mode || selectMode;
+                    if (mode === 'lasso') {
+                        const last = drag.points[drag.points.length - 1];
+                        if (!last || last.x !== x || last.y !== y) {
+                            drag.points.push({ x, y });
+                        }
+                        selectionPreviewRef.current = { type: 'lasso', start: drag.start, end: { x, y }, points: drag.points.slice() };
+                    } else {
+                        selectionPreviewRef.current = { type: mode, start: drag.start, end: { x, y } };
+                    }
+                    scheduleRender();
+                    return;
+                }
 
                 if (tool === 'move_pixels' && floatingSelection) {
                     if (!isDraggingSelection.current) return;
@@ -1868,6 +2171,70 @@
                         commitSelection();
                     }
                     isDraggingSelection.current = false;
+                    scheduleRender();
+                    return;
+                }
+
+                if (tool === 'select') {
+                    const drag = selectionDragRef.current;
+                    const pv = selectionPreviewRef.current;
+                    const out = new Set();
+                    if (drag && drag.isSelecting && drag.start && pv) {
+                        const clamp = (v) => Math.max(0, Math.min(gridSize - 1, v));
+                        if (drag.mode === 'lasso' && Array.isArray(drag.points) && drag.points.length >= 2) {
+                            const pts = drag.points.map(p => ({ x: clamp(p.x), y: clamp(p.y) }));
+                            // Ray-casting point-in-polygon on cell centers.
+                            const pointInPoly = (px, py, poly) => {
+                                let inside = false;
+                                for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                                    const xi = poly[i].x + 0.5, yi = poly[i].y + 0.5;
+                                    const xj = poly[j].x + 0.5, yj = poly[j].y + 0.5;
+                                    const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-9) + xi);
+                                    if (intersect) inside = !inside;
+                                }
+                                return inside;
+                            };
+                            let minX = gridSize - 1, maxX = 0, minY = gridSize - 1, maxY = 0;
+                            pts.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
+                            for (let yy = minY; yy <= maxY; yy++) {
+                                for (let xx = minX; xx <= maxX; xx++) {
+                                    if (pointInPoly(xx + 0.5, yy + 0.5, pts)) out.add(yy * gridSize + xx);
+                                }
+                            }
+                        } else {
+                            const x0 = clamp(Math.min(pv.start.x, pv.end.x));
+                            const y0 = clamp(Math.min(pv.start.y, pv.end.y));
+                            const x1 = clamp(Math.max(pv.start.x, pv.end.x));
+                            const y1 = clamp(Math.max(pv.start.y, pv.end.y));
+
+                            if (drag.mode === 'ellipse') {
+                                const w = x1 - x0 + 1;
+                                const h = y1 - y0 + 1;
+                                const cx = x0 + w / 2;
+                                const cy = y0 + h / 2;
+                                const rx = Math.max(0.5, w / 2);
+                                const ry = Math.max(0.5, h / 2);
+                                for (let yy = y0; yy <= y1; yy++) {
+                                    for (let xx = x0; xx <= x1; xx++) {
+                                        const nx = (xx + 0.5 - cx) / rx;
+                                        const ny = (yy + 0.5 - cy) / ry;
+                                        if ((nx * nx + ny * ny) <= 1) out.add(yy * gridSize + xx);
+                                    }
+                                }
+                            } else {
+                                for (let yy = y0; yy <= y1; yy++) {
+                                    for (let xx = x0; xx <= x1; xx++) {
+                                        out.add(yy * gridSize + xx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    selectionRef.current = out;
+                    selectionPreviewRef.current = null;
+                    selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
+                    setSelectionVersion(v => v + 1);
                     scheduleRender();
                     return;
                 }
@@ -1979,7 +2346,55 @@
             const handlePaletteImageImport = (e) => { const files = Array.from(e.target.files); if (files.length === 0) return; setPaletteImportQueue(files); setPaletteConfig({ ...paletteConfig, count: 8, variety: false }); setModalConfig({ isOpen: true, type: 'paletteImportOptions' }); e.target.value = null; };
             const handleDrop = (e) => { e.preventDefault(); const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')); if (files.length > 0) { setImportQueue(files); setModalConfig({ isOpen: true, type: 'batchImport' }); } };
             const handleDragOver = (e) => { e.preventDefault(); };
-            const exportSheet = () => { const canvas = document.createElement('canvas'); canvas.width = gridSize; canvas.height = gridSize * frames.length; const ctx = canvas.getContext('2d'); frames.forEach((frame, idx) => { const offsetY = idx * gridSize; frame.layers.slice().reverse().forEach(l => { if(l.visible) { Object.entries(l.pixels).forEach(([key, c]) => { const i = parseInt(key); if(c) { ctx.fillStyle = c; ctx.fillRect((i % gridSize), Math.floor(i / gridSize) + offsetY, 1, 1); } }); } }); }); const link = document.createElement('a'); link.download = `${currentProject.name}.png`; link.href = canvas.toDataURL(); link.click(); };
+
+            // Allow the user to choose a filename at download time.
+            const promptDownloadName = (baseName, ext) => {
+                const safeBase = (baseName || 'pix-art').toString().trim() || 'pix-art';
+                const safeExt = (ext || '.png').startsWith('.') ? (ext || '.png') : `.${ext}`;
+                const suggested = `${safeBase}${safeExt}`;
+                const input = window.prompt('File name to download:', suggested);
+                if (input == null) return null;
+                let name = input.trim();
+                if (!name) return null;
+                // Replace characters that are invalid on Windows/macOS file systems.
+                name = name.replace(/[\\/:*?\"<>|]+/g, '-');
+                // Force the correct extension (export is PNG).
+                const lowerExt = safeExt.toLowerCase();
+                if (!name.toLowerCase().endsWith(lowerExt)) {
+                    name = name.replace(/\.[a-z0-9]{1,5}$/i, '');
+                    name = `${name}${safeExt}`;
+                }
+                return name;
+            };
+
+            const exportSheet = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = gridSize;
+                canvas.height = gridSize * frames.length;
+                const ctx = canvas.getContext('2d');
+
+                frames.forEach((frame, idx) => {
+                    const offsetY = idx * gridSize;
+                    frame.layers.slice().reverse().forEach(l => {
+                        if (!l.visible) return;
+                        Object.entries(l.pixels).forEach(([key, c]) => {
+                            const i = parseInt(key);
+                            if (c) {
+                                ctx.fillStyle = c;
+                                ctx.fillRect((i % gridSize), Math.floor(i / gridSize) + offsetY, 1, 1);
+                            }
+                        });
+                    });
+                });
+
+                const desiredName = promptDownloadName(currentProject?.name || 'pix-art', '.png');
+                if (!desiredName) return;
+
+                const link = document.createElement('a');
+                link.download = desiredName;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            };
             const handleTabClick = (tabId) => { if (window.innerWidth < 768) { if (activeTab === tabId) { setIsMobilePanelOpen(!isMobilePanelOpen); } else { setActiveTab(tabId); setIsMobilePanelOpen(true); } } else { setActiveTab(tabId); } };
             const currentFolder = library.find(f => f.id === currentFolderId) || library[0];
 
@@ -2061,6 +2476,11 @@
                                             <div>
                                                 <span className="font-bold">{t.label}</span> <span className="opacity-70">({t.binding})</span>
                                                 <div className="text-[10px] opacity-80 mt-1 font-normal">{t.desc}</div>
+                                                <div className="mt-2 space-y-0.5 text-[10px] leading-tight opacity-85">
+                                                    {getToolShortcutLines(t.id).map((line, idx) => (
+                                                        <div key={idx} className="whitespace-nowrap">{line}</div>
+                                                    ))}
+                                                </div>
                                             </div>
                                         ),
                                         top: e.currentTarget.getBoundingClientRect().top, 
@@ -2167,6 +2587,42 @@
                                                 <button onClick={() => setMoveMode('color')} className={`py-1 rounded border ${moveMode === 'color' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>ALL COLOR</button>
                                                 <button onClick={() => setMoveMode('all')} className={`py-1 rounded border ${moveMode === 'all' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>ALL PIXELS</button>
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {tool === 'select' && (
+                                        <div className="flex flex-col gap-2 pt-2 border-t border-space-700">
+                                            <span className="text-[10px] text-gray-400 uppercase">Selection Mode</span>
+                                            <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                                <button onClick={() => setSelectMode('rect')} className={`py-1 rounded border ${selectMode === 'rect' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>RECT (1)</button>
+                                                <button onClick={() => setSelectMode('ellipse')} className={`py-1 rounded border ${selectMode === 'ellipse' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>ELLIPSE (2)</button>
+                                                <button onClick={() => setSelectMode('lasso')} className={`py-1 rounded border ${selectMode === 'lasso' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>LASSO (3)</button>
+                                                <button onClick={() => setSelectMode('smart')} className={`py-1 rounded border ${selectMode === 'smart' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>SMART (4)</button>
+                                            </div>
+                                            {selectMode === 'smart' && (
+                                                <div className="pt-2 border-t border-space-700">
+                                                    <span className="text-[10px] text-gray-400 uppercase">Smart Type</span>
+                                                    <div className="grid grid-cols-1 gap-1 text-[10px] mt-1">
+                                                        <button onClick={() => setSmartSelectMode('connected')} className={`py-1 rounded border ${smartSelectMode === 'connected' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Connected Pixels</button>
+                                                        <button onClick={() => setSmartSelectMode('connected_color')} className={`py-1 rounded border ${smartSelectMode === 'connected_color' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Connected Same Color</button>
+                                                        <button onClick={() => setSmartSelectMode('all_painted')} className={`py-1 rounded border ${smartSelectMode === 'all_painted' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>All Painted Pixels</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {(
+                                        tool === 'bucket' ||
+                                        (tool === 'lighten' && lightenMode === 'color') ||
+                                        (tool === 'move_pixels' && (moveMode === 'connected_color' || moveMode === 'color')) ||
+                                        (tool === 'select' && selectMode === 'smart')
+                                    ) && (
+                                        <div className="space-y-1 pt-2 border-t border-space-700">
+                                            <div className="flex justify-between text-[10px] text-gray-400">
+                                                <span>TOLERANCE</span><span>{tolerance}</span>
+                                            </div>
+                                            <input type="range" min="0" max="255" value={tolerance} onChange={e => setTolerance(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
                                         </div>
                                     )}
                                 </div>
@@ -2391,6 +2847,44 @@
                                                     ))}
                                                 </div>
                                                 <p className="text-[9px] text-gray-500 mt-2 italic">Click to select, drag to move, change tool to apply.</p>
+                                            </div>
+                                        )}
+
+                                        {tool === 'select' && (
+                                            <div className="mt-4 p-2 border border-space-600 rounded-lg bg-space-900/50">
+                                                <div className="text-xs text-gray-400 font-bold mb-2 uppercase">Selection Mode</div>
+                                                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                                    <button onClick={() => setSelectMode('rect')} className={`py-1 rounded border ${selectMode === 'rect' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Rect (1)</button>
+                                                    <button onClick={() => setSelectMode('ellipse')} className={`py-1 rounded border ${selectMode === 'ellipse' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Ellipse (2)</button>
+                                                    <button onClick={() => setSelectMode('lasso')} className={`py-1 rounded border ${selectMode === 'lasso' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Lasso (3)</button>
+                                                    <button onClick={() => setSelectMode('smart')} className={`py-1 rounded border ${selectMode === 'smart' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Smart (4)</button>
+                                                </div>
+
+                                                {selectMode === 'smart' && (
+                                                    <div className="mt-2 pt-2 border-t border-space-700">
+                                                        <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Smart Type</div>
+                                                        <div className="grid grid-cols-1 gap-1 text-[10px]">
+                                                            <button onClick={() => setSmartSelectMode('connected')} className={`py-1 rounded border ${smartSelectMode === 'connected' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Connected Pixels</button>
+                                                            <button onClick={() => setSmartSelectMode('connected_color')} className={`py-1 rounded border ${smartSelectMode === 'connected_color' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Connected Same Color</button>
+                                                            <button onClick={() => setSmartSelectMode('all_painted')} className={`py-1 rounded border ${smartSelectMode === 'all_painted' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>All Painted Pixels</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <p className="text-[9px] text-gray-500 mt-2 italic">Use Move tool to drag a selection (click converts selection to a floating selection).</p>
+                                            </div>
+                                        )}
+
+                                        {(
+                                            tool === 'bucket' ||
+                                            (tool === 'lighten' && lightenMode === 'color') ||
+                                            (tool === 'move_pixels' && (moveMode === 'connected_color' || moveMode === 'color')) ||
+                                            (tool === 'select' && selectMode === 'smart')
+                                        ) && (
+                                            <div className="mt-4 p-2 border border-space-600 rounded-lg bg-space-900/50">
+                                                <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>TOLERANCE</span><span>{tolerance}</span></div>
+                                                <input type="range" min="0" max="255" value={tolerance} onChange={e => setTolerance(parseInt(e.target.value))} className="w-full h-1 bg-space-900 rounded-lg appearance-none cursor-pointer range-sm" />
+                                                <p className="text-[9px] text-gray-500 mt-2 italic">Affects: Smart select, bucket fill, and color-based ops.</p>
                                             </div>
                                         )}
                                     </div>
