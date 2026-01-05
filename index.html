@@ -555,10 +555,6 @@
             const selectionPreviewRef = useRef(null); // { type, start:{x,y}, end:{x,y}, points? }
             const selectionDragRef = useRef({ isSelecting: false, start: null, points: [], mode: null });
 
-            // Reference images
-            const [referenceImages, setReferenceImages] = useState([]); // [{id,name,src,scale}]
-            const [activeRefImageId, setActiveRefImageId] = useState(null);
-            
             const [isPlaying, setIsPlaying] = useState(false);
             const [onionSkin, setOnionSkin] = useState(false);
             const [zoom, setZoom] = useState(0.8);
