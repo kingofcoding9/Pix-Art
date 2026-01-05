@@ -582,6 +582,11 @@
             const selectionPreviewRef = useRef(null); // { type, start:{x,y}, end:{x,y}, points? }
             const selectionDragRef = useRef({ isSelecting: false, start: null, points: [], mode: null });
 
+            // Marching-ants animation phase for selections.
+            // Use a ref (not state) so it can advance smoothly without triggering React re-renders.
+            const antsPhaseRef = useRef(0);
+            const antsAnimRafRef = useRef(null);
+
             const [isPlaying, setIsPlaying] = useState(false);
             const [onionSkin, setOnionSkin] = useState(false);
             const [zoom, setZoom] = useState(0.8);
@@ -1206,40 +1211,62 @@
                     if (!selSet || selSet.size === 0) return;
 
                     // Photoshop-style marching ants: alternating black/white dashed border.
-                    // IMPORTANT: our canvas coordinate space is the pixel grid (1 unit = 1 pixel).
-                    // Subpixel line widths are effectively invisible when the canvas is CSS-scaled.
-                    // Use whole-pixel dashes and a 1px line width for reliable visibility.
+                    // Draw a continuous boundary path (not per-cell boxes) so the committed selection
+                    // looks as good as the preview and is clearly not paint.
                     const dash = 4; // in canvas pixel units (grid pixels)
                     const lineW = opts.lineW || 1;
-                    const t = Date.now();
-                    const baseOffset = -((t / 120) % (dash * 2));
+                    const phase = antsPhaseRef.current || 0;
+                    const baseOffset = -(phase % (dash * 2));
 
-                    const strokeEdges = (strokeStyle, dashOffset) => {
+                    const buildBoundaryPath = () => {
+                        ctx.beginPath();
+                        selSet.forEach(idx => {
+                            const x = idx % gridSize;
+                            const y = Math.floor(idx / gridSize);
+
+                            // For each selected cell, draw the edges where the neighbor is not selected.
+                            // Coordinates are on the pixel grid; add 0.5 for crisp 1px strokes.
+                            const leftIdx = idx - 1;
+                            const rightIdx = idx + 1;
+                            const upIdx = idx - gridSize;
+                            const downIdx = idx + gridSize;
+
+                            // top edge
+                            if (y === 0 || !selSet.has(upIdx)) {
+                                ctx.moveTo(x + 0.5, y + 0.5);
+                                ctx.lineTo(x + 1 + 0.5, y + 0.5);
+                            }
+                            // bottom edge
+                            if (y === gridSize - 1 || !selSet.has(downIdx)) {
+                                ctx.moveTo(x + 0.5, y + 1 + 0.5);
+                                ctx.lineTo(x + 1 + 0.5, y + 1 + 0.5);
+                            }
+                            // left edge
+                            if (x === 0 || !selSet.has(leftIdx)) {
+                                ctx.moveTo(x + 0.5, y + 0.5);
+                                ctx.lineTo(x + 0.5, y + 1 + 0.5);
+                            }
+                            // right edge
+                            if (x === gridSize - 1 || !selSet.has(rightIdx)) {
+                                ctx.moveTo(x + 1 + 0.5, y + 0.5);
+                                ctx.lineTo(x + 1 + 0.5, y + 1 + 0.5);
+                            }
+                        });
+                    };
+
+                    const strokeBoundary = (strokeStyle, dashOffset) => {
                         ctx.save();
                         ctx.strokeStyle = strokeStyle;
                         ctx.lineWidth = lineW;
                         ctx.setLineDash([dash, dash]);
                         ctx.lineDashOffset = baseOffset + dashOffset;
-                        // Outline only boundary cells to keep it legible.
-                        selSet.forEach(idx => {
-                            const px = idx % gridSize;
-                            const py = Math.floor(idx / gridSize);
-                            const left = idx - 1;
-                            const right = idx + 1;
-                            const up = idx - gridSize;
-                            const down = idx + gridSize;
-                            const onEdge =
-                                (px === 0 || !selSet.has(left)) ||
-                                (px === gridSize - 1 || !selSet.has(right)) ||
-                                (py === 0 || !selSet.has(up)) ||
-                                (py === gridSize - 1 || !selSet.has(down));
-                            if (onEdge) ctx.strokeRect(px + 0.5, py + 0.5, 1, 1);
-                        });
+                        buildBoundaryPath();
+                        ctx.stroke();
                         ctx.restore();
                     };
 
-                    strokeEdges('rgba(0,0,0,0.95)', 0);
-                    strokeEdges('rgba(255,255,255,0.95)', dash);
+                    strokeBoundary('rgba(0,0,0,0.95)', 0);
+                    strokeBoundary('rgba(255,255,255,0.95)', dash);
                 };
 
                 // Draw committed selection
@@ -1252,8 +1279,8 @@
                     const pv = selectionPreviewRef.current;
                     // Preview uses the same marching-ants treatment so it's obvious it is a selection.
                     const dash = 4;
-                    const t = Date.now();
-                    const baseOffset = -((t / 120) % (dash * 2));
+                    const phase = antsPhaseRef.current || 0;
+                    const baseOffset = -(phase % (dash * 2));
 
                     const drawPreviewPath = () => {
                         if (pv.type === 'lasso' && Array.isArray(pv.points) && pv.points.length > 1) {
@@ -1409,6 +1436,31 @@
                     if (rafRenderId.current != null) {
                         cancelAnimationFrame(rafRenderId.current);
                         rafRenderId.current = null;
+                    }
+                };
+            }, [scheduleRender]);
+
+            // Keep the marching-ants selection border animating even when the user is idle.
+            // We advance a phase counter in a rAF loop and re-render only when a selection or
+            // selection preview exists.
+            useEffect(() => {
+                const step = () => {
+                    // Advance by 1 each frame; the draw function maps this to dash offsets.
+                    antsPhaseRef.current = (antsPhaseRef.current + 1) % 1000000;
+
+                    // Only redraw when something selection-related is on screen.
+                    if ((selectionRef.current && selectionRef.current.size > 0) || selectionPreviewRef.current) {
+                        scheduleRender();
+                    }
+
+                    antsAnimRafRef.current = requestAnimationFrame(step);
+                };
+
+                antsAnimRafRef.current = requestAnimationFrame(step);
+                return () => {
+                    if (antsAnimRafRef.current != null) {
+                        cancelAnimationFrame(antsAnimRafRef.current);
+                        antsAnimRafRef.current = null;
                     }
                 };
             }, [scheduleRender]);
