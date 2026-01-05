@@ -584,7 +584,9 @@
 
             // Marching-ants animation phase for selections.
             // Use a ref (not state) so it can advance smoothly without triggering React re-renders.
-            const antsPhaseRef = useRef(0);
+            // Marching-ants animation is time-based (not frame-count based) so it never speeds up
+            // due to extra renders during pointer interaction.
+            const antsTimeRef = useRef(performance.now());
             const antsAnimRafRef = useRef(null);
 
             const [isPlaying, setIsPlaying] = useState(false);
@@ -1215,8 +1217,11 @@
                     // looks as good as the preview and is clearly not paint.
                     const dash = 4; // in canvas pixel units (grid pixels)
                     const lineW = opts.lineW || 1;
-                    const phase = antsPhaseRef.current || 0;
-                    const baseOffset = -(phase % (dash * 2));
+                    // Time-based dash offset: keeps marching speed constant even if the app
+                    // renders more often while the user is holding a pointer down.
+                    const t = performance.now();
+                    const msPerPx = 120; // 1px dash shift every 120ms (pleasant, classic speed)
+                    const baseOffset = -((t / msPerPx) % (dash * 2));
 
                     const buildBoundaryPath = () => {
                         ctx.beginPath();
@@ -1279,8 +1284,9 @@
                     const pv = selectionPreviewRef.current;
                     // Preview uses the same marching-ants treatment so it's obvious it is a selection.
                     const dash = 4;
-                    const phase = antsPhaseRef.current || 0;
-                    const baseOffset = -(phase % (dash * 2));
+                    const t = performance.now();
+                    const msPerPx = 120;
+                    const baseOffset = -((t / msPerPx) % (dash * 2));
 
                     const drawPreviewPath = () => {
                         if (pv.type === 'lasso' && Array.isArray(pv.points) && pv.points.length > 1) {
@@ -1445,8 +1451,7 @@
             // selection preview exists.
             useEffect(() => {
                 const step = () => {
-                    // Advance by 1 each frame; the draw function maps this to dash offsets.
-                    antsPhaseRef.current = (antsPhaseRef.current + 1) % 1000000;
+                    // No counter needed: dash offset is computed from performance.now() in the draw function.
 
                     // Only redraw when something selection-related is on screen.
                     if ((selectionRef.current && selectionRef.current.size > 0) || selectionPreviewRef.current) {
