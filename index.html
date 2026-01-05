@@ -547,10 +547,17 @@
             // Selection tool state
             const [selectMode, setSelectMode] = useState('rect'); // 'rect' | 'ellipse' | 'lasso' | 'smart'
             const [smartSelectMode, setSmartSelectMode] = useState('connected'); // 'connected' | 'connected_color' | 'all_painted'
+            // How a new selection combines with the existing selection.
+            // Desktop modifiers: Shift=Add, Alt=Subtract.
+            const [selectCombineMode, setSelectCombineMode] = useState('replace'); // 'replace' | 'add' | 'subtract'
             const selectionRef = useRef(new Set());
             const [selectionVersion, setSelectionVersion] = useState(0);
             const selectionPreviewRef = useRef(null); // { type, start:{x,y}, end:{x,y}, points? }
             const selectionDragRef = useRef({ isSelecting: false, start: null, points: [], mode: null });
+
+            // Reference images
+            const [referenceImages, setReferenceImages] = useState([]); // [{id,name,src,scale}]
+            const [activeRefImageId, setActiveRefImageId] = useState(null);
             
             const [isPlaying, setIsPlaying] = useState(false);
             const [onionSkin, setOnionSkin] = useState(false);
@@ -571,6 +578,10 @@
             const [inputNumberValue, setInputNumberValue] = useState(32);
             
             const [floatingSelection, setFloatingSelection] = useState(null); 
+
+            // Reference images (non-destructive). Displayed in a dedicated panel when present.
+            const [referenceImages, setReferenceImages] = useState([]); // [{id,name,src,scale}]
+            const [activeReferenceId, setActiveReferenceId] = useState(null);
             const [library, setLibrary] = useState(() => {
                 const saved = localStorage.getItem('pixelArtPaletteLibrary');
                 return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Cosmic Colors', palettes: [] }];
@@ -596,6 +607,7 @@
             const canvasRef = useRef(null);
             const containerRef = useRef(null);
             const imageImportRef = useRef(null);
+            const referenceImageImportRef = useRef(null);
             const paletteImageImportRef = useRef(null);
             const isDrawing = useRef(false);
             const isPanning = useRef(false);
@@ -894,6 +906,13 @@
             }, [currentFrameIndex, frames]);
 
             useEffect(() => {
+                // If the user removed all reference images, hide the reference panel.
+                if (referenceImages.length === 0 && activeTab === 'reference') {
+                    setActiveTab('layers');
+                }
+            }, [referenceImages.length, activeTab]);
+
+            useEffect(() => {
                 if (!currentProject || !currentProject.id) return;
                 const histOk = Array.isArray(currentProject.history) ? currentProject.history : [];
                 if (histOk.length === 0) {
@@ -908,8 +927,11 @@
                 const handleKeyDown = (e) => {
                     if (e.target.tagName === 'INPUT') return;
                     if (e.ctrlKey) {
-                        if (e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
-                        if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+                        const k = e.key.toLowerCase();
+                        if (k === 'z') { e.preventDefault(); undo(); return; }
+                        if (k === 'y') { e.preventDefault(); redo(); return; }
+                        if (k === 'd') { e.preventDefault(); clearSelection(); return; }
+                        if (k === 'i' && e.shiftKey) { e.preventDefault(); invertSelection(); return; }
                         return;
                     }
                     switch(e.key.toLowerCase()) {
@@ -952,7 +974,7 @@
                 };
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
-            }, [projects, activeProjectId, tool]);
+            }, [projects, activeProjectId, tool, gridSize, clearSelection, invertSelection]);
 
             useEffect(() => {
                 if (isPlaying) {
@@ -1149,34 +1171,39 @@
                 // Draws an overlay for the current selection and any in-progress selection preview.
                 const drawSelectionSet = (selSet, opts = {}) => {
                     if (!selSet || selSet.size === 0) return;
-                    const fill = opts.fill || 'rgba(6,182,212,0.18)';
-                    const stroke = opts.stroke || 'rgba(6,182,212,0.65)';
-                    const lineW = opts.lineW || 0.08;
-                    ctx.save();
-                    ctx.fillStyle = fill;
-                    selSet.forEach(idx => {
-                        const px = idx % gridSize;
-                        const py = Math.floor(idx / gridSize);
-                        ctx.fillRect(px, py, 1, 1);
-                    });
-                    ctx.strokeStyle = stroke;
-                    ctx.lineWidth = lineW;
-                    // Outline only boundary cells to reduce visual noise.
-                    selSet.forEach(idx => {
-                        const px = idx % gridSize;
-                        const py = Math.floor(idx / gridSize);
-                        const left = idx - 1;
-                        const right = idx + 1;
-                        const up = idx - gridSize;
-                        const down = idx + gridSize;
-                        const onEdge =
-                            (px === 0 || !selSet.has(left)) ||
-                            (px === gridSize - 1 || !selSet.has(right)) ||
-                            (py === 0 || !selSet.has(up)) ||
-                            (py === gridSize - 1 || !selSet.has(down));
-                        if (onEdge) ctx.strokeRect(px + 0.02, py + 0.02, 0.96, 0.96);
-                    });
-                    ctx.restore();
+
+                    // Photoshop-style marching ants: alternating black/white dashed border.
+                    const dash = 0.32; // in canvas pixel units
+                    const lineW = opts.lineW || 0.14;
+                    const t = Date.now();
+                    const baseOffset = -((t / 90) % (dash * 2));
+
+                    const strokeEdges = (strokeStyle, dashOffset) => {
+                        ctx.save();
+                        ctx.strokeStyle = strokeStyle;
+                        ctx.lineWidth = lineW;
+                        ctx.setLineDash([dash, dash]);
+                        ctx.lineDashOffset = baseOffset + dashOffset;
+                        // Outline only boundary cells to keep it legible.
+                        selSet.forEach(idx => {
+                            const px = idx % gridSize;
+                            const py = Math.floor(idx / gridSize);
+                            const left = idx - 1;
+                            const right = idx + 1;
+                            const up = idx - gridSize;
+                            const down = idx + gridSize;
+                            const onEdge =
+                                (px === 0 || !selSet.has(left)) ||
+                                (px === gridSize - 1 || !selSet.has(right)) ||
+                                (py === 0 || !selSet.has(up)) ||
+                                (py === gridSize - 1 || !selSet.has(down));
+                            if (onEdge) ctx.strokeRect(px + 0.02, py + 0.02, 0.96, 0.96);
+                        });
+                        ctx.restore();
+                    };
+
+                    strokeEdges('rgba(0,0,0,0.95)', 0);
+                    strokeEdges('rgba(255,255,255,0.95)', dash);
                 };
 
                 // Draw committed selection
@@ -1187,17 +1214,19 @@
                 // Draw selection preview (rect/ellipse/lasso)
                 if (selectionPreviewRef.current) {
                     const pv = selectionPreviewRef.current;
-                    ctx.save();
-                    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-                    ctx.lineWidth = 0.1;
-                    ctx.setLineDash([0.25, 0.25]);
+                    // Preview uses the same marching-ants treatment so it's obvious it is a selection.
+                    const dash = 0.32;
+                    const t = Date.now();
+                    const baseOffset = -((t / 90) % (dash * 2));
 
-                    if (pv.type === 'lasso' && Array.isArray(pv.points) && pv.points.length > 1) {
-                        ctx.beginPath();
-                        ctx.moveTo(pv.points[0].x + 0.5, pv.points[0].y + 0.5);
-                        for (let i = 1; i < pv.points.length; i++) ctx.lineTo(pv.points[i].x + 0.5, pv.points[i].y + 0.5);
-                        ctx.stroke();
-                    } else {
+                    const drawPreviewPath = () => {
+                        if (pv.type === 'lasso' && Array.isArray(pv.points) && pv.points.length > 1) {
+                            ctx.beginPath();
+                            ctx.moveTo(pv.points[0].x + 0.5, pv.points[0].y + 0.5);
+                            for (let i = 1; i < pv.points.length; i++) ctx.lineTo(pv.points[i].x + 0.5, pv.points[i].y + 0.5);
+                            ctx.stroke();
+                            return;
+                        }
                         const x0 = Math.min(pv.start.x, pv.end.x);
                         const y0 = Math.min(pv.start.y, pv.end.y);
                         const x1 = Math.max(pv.start.x, pv.end.x);
@@ -1215,9 +1244,20 @@
                         } else {
                             ctx.strokeRect(x0, y0, w, h);
                         }
-                    }
+                    };
 
-                    ctx.restore();
+                    const strokePreview = (strokeStyle, dashOffset) => {
+                        ctx.save();
+                        ctx.strokeStyle = strokeStyle;
+                        ctx.lineWidth = 0.14;
+                        ctx.setLineDash([dash, dash]);
+                        ctx.lineDashOffset = baseOffset + dashOffset;
+                        drawPreviewPath();
+                        ctx.restore();
+                    };
+
+                    strokePreview('rgba(0,0,0,0.95)', 0);
+                    strokePreview('rgba(255,255,255,0.95)', dash);
                 }
 
                 // Preview Cursor
@@ -1436,6 +1476,30 @@
                 }
             };
 
+            const handleReferenceImageImport = (e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length === 0) return;
+                files.forEach((file, i) => {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        const id = 'ref-' + Date.now() + '-' + i;
+                        const src = evt.target.result;
+                        setReferenceImages(prev => {
+                            const next = [...prev, { id, name: file.name || 'Reference', src, scale: 100 }];
+                            return next;
+                        });
+                        setActiveReferenceId(prev => prev || id);
+                        // Show the Reference tab/panel when images are added.
+                        setActiveTab('reference');
+                        if (window.innerWidth < 768) {
+                            setIsMobilePanelOpen(true);
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                });
+                e.target.value = null;
+            };
+
             const handleBrushImport = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -1613,6 +1677,9 @@
                 if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
                 const idx = y * gridSize + x;
 
+                // If a selection exists, restrict painting/erasing to selected cells.
+                if (selectionRef.current && selectionRef.current.size > 0 && !selectionRef.current.has(idx)) return;
+
                 if (tool === 'eraser') {
                     targetPixels[idx] = null;
                     // Treat eraser as "max strength" so repeated passes in the same stroke don't add extra work.
@@ -1681,6 +1748,49 @@
                     if (e2 < dx) { err += dx; y0 += sy; }
                 }
                 return points;
+            };
+
+            // --- Selection helpers ---
+            const clearSelection = () => {
+                selectionRef.current = new Set();
+                selectionPreviewRef.current = null;
+                selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
+                setSelectionVersion(v => v + 1);
+            };
+
+            const invertSelection = () => {
+                const total = gridSize * gridSize;
+                const cur = selectionRef.current || new Set();
+                const out = new Set();
+                for (let i = 0; i < total; i++) {
+                    if (!cur.has(i)) out.add(i);
+                }
+                selectionRef.current = out;
+                selectionPreviewRef.current = null;
+                selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
+                setSelectionVersion(v => v + 1);
+            };
+
+            const applySelectionCombine = (incomingSet, combineMode) => {
+                const cur = selectionRef.current || new Set();
+                if (!incomingSet || incomingSet.size === 0) {
+                    if (combineMode === 'replace') selectionRef.current = new Set();
+                    return;
+                }
+                if (combineMode === 'add') {
+                    const out = new Set(cur);
+                    incomingSet.forEach(v => out.add(v));
+                    selectionRef.current = out;
+                    return;
+                }
+                if (combineMode === 'subtract') {
+                    const out = new Set(cur);
+                    incomingSet.forEach(v => out.delete(v));
+                    selectionRef.current = out;
+                    return;
+                }
+                // replace
+                selectionRef.current = incomingSet;
             };
 
             // --- Handlers ---
@@ -1788,7 +1898,10 @@
                             }
                         }
 
-                        selectionRef.current = out;
+                        let combine = selectCombineMode;
+                        if (e.shiftKey) combine = 'add';
+                        else if (e.altKey) combine = 'subtract';
+                        applySelectionCombine(out, combine);
                         selectionPreviewRef.current = null;
                         selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
                         setSelectionVersion(v => v + 1);
@@ -1850,18 +1963,79 @@
                     const basePixels = activeLayer.pixels;
                     const targetColor = basePixels[y * gridSize + x];
 
-                    // If a selection exists (from the Selection tool), convert it to a floating selection.
-                    if (selectionRef.current && selectionRef.current.size > 0) {
-                        selectionRef.current.forEach((idx) => {
+                    // If a selection exists (from the Selection tool), clicking INSIDE it moves that selection.
+                    // The selection remains active and moves in real time with the dragged content.
+                    const selMask = selectionRef.current;
+                    const hasSelMask = selMask && selMask.size > 0;
+                    const clickedIdx = y * gridSize + x;
+                    if (hasSelMask && selMask.has(clickedIdx)) {
+                        const maskIndices = Array.from(selMask);
+                        let minX = gridSize, minY = gridSize, maxX = 0, maxY = 0;
+                        maskIndices.forEach(idx => {
+                            const px = idx % gridSize;
+                            const py = Math.floor(idx / gridSize);
+                            if (px < minX) minX = px;
+                            if (py < minY) minY = py;
+                            if (px > maxX) maxX = px;
+                            if (py > maxY) maxY = py;
+                        });
+                        const w = maxX - minX + 1;
+                        const h = maxY - minY + 1;
+                        const mask = maskIndices.map(idx => ({
+                            x: (idx % gridSize) - minX,
+                            y: Math.floor(idx / gridSize) - minY
+                        }));
+
+                        // Collect painted pixels that fall inside the selection.
+                        const paintedAbs = [];
+                        maskIndices.forEach(idx => {
                             const colHex = basePixels[idx];
                             if (!colHex) return;
                             const px = idx % gridSize;
                             const py = Math.floor(idx / gridSize);
-                            selectedPixels.push({ x: px, y: py, color: colHex });
+                            paintedAbs.push({ x: px, y: py, color: colHex });
                         });
-                        // Clear selection once it's been consumed by the move tool.
-                        selectionRef.current = new Set();
-                        setSelectionVersion(v => v + 1);
+
+                        // Remove painted pixels from the layer while dragging (temporary until commit).
+                        const newPixels = { ...activeLayer.pixels };
+                        paintedAbs.forEach(p => {
+                            delete newPixels[p.y * gridSize + p.x];
+                        });
+
+                        const normalized = paintedAbs.map(p => ({
+                            x: p.x - minX,
+                            y: p.y - minY,
+                            color: p.color
+                        }));
+
+                        const ax = Math.min(Math.max(x - minX, 0), Math.max(0, w - 1));
+                        const ay = Math.min(Math.max(y - minY, 0), Math.max(0, h - 1));
+
+                        setFloatingSelection({
+                            pixels: normalized,
+                            mask,
+                            originX: minX,
+                            originY: minY,
+                            anchorX: ax,
+                            anchorY: ay,
+                            offsetX: 0,
+                            offsetY: 0,
+                            width: w,
+                            height: h
+                        });
+
+                        const newFrames = JSON.parse(JSON.stringify(frames));
+                        newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l =>
+                            l.id === activeLayerId ? { ...l, pixels: newPixels } : l
+                        );
+                        updateProject(activeProjectId, { frames: newFrames });
+
+                        // Start dragging immediately.
+                        isDraggingSelection.current = true;
+                        isDrawing.current = true;
+                        lastPos.current = { x, y };
+                        scheduleRender();
+                        return;
                     }
 
                     if (selectedPixels.length === 0 && moveMode === 'all') {
@@ -1985,9 +2159,13 @@
                     const isDarken = e.shiftKey || darkenMode;
                     const amount = isDarken ? -20 : 20;
                     const newPixels = {...activeLayer.pixels};
+                    const sel = selectionRef.current;
+                    const hasSel = sel && sel.size > 0;
                     
                     if (lightenMode === 'all') {
                         Object.keys(newPixels).forEach(k => {
+                            const idx = parseInt(k);
+                            if (hasSel && !sel.has(idx)) return;
                             if (newPixels[k]) newPixels[k] = adjustBrightness(newPixels[k], amount);
                         });
                         const newFrames = JSON.parse(JSON.stringify(frames));
@@ -1998,6 +2176,8 @@
                         const targetColor = activeLayer.pixels[y*gridSize+x];
                         if (targetColor) {
                             Object.keys(newPixels).forEach(k => {
+                                const idx = parseInt(k);
+                                if (hasSel && !sel.has(idx)) return;
                                 if (colorsSimilar(newPixels[k], targetColor, tolerance)) newPixels[k] = adjustBrightness(newPixels[k], amount);
                             });
                             const newFrames = JSON.parse(JSON.stringify(frames));
@@ -2023,15 +2203,20 @@
                     if (targetColor === fillCol) return;
                     
                     const newPixels = {...activeLayer.pixels};
+                    const sel = selectionRef.current;
+                    const hasSel = sel && sel.size > 0;
                     if (fillMode === 'global') {
                         if (targetColor) {
                             Object.keys(newPixels).forEach(key => {
+                                const idx = parseInt(key);
+                                if (hasSel && !sel.has(idx)) return;
                                 if (colorsSimilar(newPixels[key], targetColor, tolerance)) newPixels[key] = fillCol;
                             });
                         } else {
                             // Global fill of empty space: must iterate full grid.
                             const total = gridSize * gridSize;
                             for (let i = 0; i < total; i++) {
+                                if (hasSel && !sel.has(i)) continue;
                                 if (!newPixels[i]) newPixels[i] = fillCol;
                             }
                         }
@@ -2041,15 +2226,19 @@
                             if (safety++ > 500000) break;
                             const {x: cx, y: cy} = stack.pop();
                             const key = `${cx},${cy}`; if(visited.has(key)) continue; visited.add(key);
+                            if (cx < 0 || cy < 0 || cx >= gridSize || cy >= gridSize) continue;
                             const idx = cy*gridSize+cx;
+                            if (hasSel && !sel.has(idx)) continue;
                             const pxCol = newPixels[idx];
                             const match = targetColor
                                 ? (pxCol && colorsSimilar(pxCol, targetColor, tolerance))
                                 : (!pxCol);
                             if (match) {
                                 newPixels[idx] = fillCol;
-                                if(cx>0) stack.push({x: cx-1, y: cy}); if(cx<gridSize-1) stack.push({x: cx+1, y: cy});
-                                if(cy>0) stack.push({x: cx, y: cy-1}); if(cy<gridSize-1) stack.push({x: cx, y: cy+1});
+                                stack.push({x: cx-1, y: cy});
+                                stack.push({x: cx+1, y: cy});
+                                stack.push({x: cx, y: cy-1});
+                                stack.push({x: cx, y: cy+1});
                             }
                         }
                     }
@@ -2120,7 +2309,31 @@
                     const ay = floatingSelection.anchorY || 0;
                     const newOffsetX = x - ((floatingSelection.originX || 0) + ax);
                     const newOffsetY = y - ((floatingSelection.originY || 0) + ay);
-                    setFloatingSelection(prev => prev ? ({ ...prev, offsetX: newOffsetX, offsetY: newOffsetY }) : prev);
+                    // Clamp movement so no selected content can be moved outside the paintable canvas.
+                    const w = Math.max(0, floatingSelection.width || 0);
+                    const h = Math.max(0, floatingSelection.height || 0);
+                    const ox = floatingSelection.originX || 0;
+                    const oy = floatingSelection.originY || 0;
+                    const minX = -ox;
+                    const maxX = gridSize - w - ox;
+                    const minY = -oy;
+                    const maxY = gridSize - h - oy;
+                    const cx = Math.min(Math.max(newOffsetX, minX), maxX);
+                    const cy = Math.min(Math.max(newOffsetY, minY), maxY);
+                    setFloatingSelection(prev => prev ? ({ ...prev, offsetX: cx, offsetY: cy }) : prev);
+
+                    // If this move is based on a selection mask, keep the selection marching ants in sync in real time.
+                    if (floatingSelection.mask && Array.isArray(floatingSelection.mask) && floatingSelection.mask.length) {
+                        const nextSel = new Set();
+                        for (const cell of floatingSelection.mask) {
+                            const px = ox + cx + cell.x;
+                            const py = oy + cy + cell.y;
+                            if (px >= 0 && px < gridSize && py >= 0 && py < gridSize) {
+                                nextSel.add(py * gridSize + px);
+                            }
+                        }
+                        selectionRef.current = nextSel;
+                    }
                     scheduleRender();
                     return;
                 }
@@ -2231,7 +2444,10 @@
                         }
                     }
 
-                    selectionRef.current = out;
+                    let combine = selectCombineMode;
+                    if (e.shiftKey) combine = 'add';
+                    else if (e.altKey) combine = 'subtract';
+                    applySelectionCombine(out, combine);
                     selectionPreviewRef.current = null;
                     selectionDragRef.current = { isSelecting: false, start: null, points: [], mode: null };
                     setSelectionVersion(v => v + 1);
@@ -2307,6 +2523,21 @@
                 const newFrames = JSON.parse(JSON.stringify(frames));
                 newFrames[currentFrameIndex].layers = newFrames[currentFrameIndex].layers.map(l => l.id === activeLayerId ? { ...l, pixels: newPixels } : l);
                 saveHistory(newFrames);
+
+                // Preserve selection: if the floating selection originated from a selection mask, keep it selected
+                // at the new (clamped) position after commit.
+                if (floatingSelection.mask && Array.isArray(floatingSelection.mask) && floatingSelection.mask.length) {
+                    const nextSel = new Set();
+                    for (const cell of floatingSelection.mask) {
+                        const px = ox + cell.x;
+                        const py = oy + cell.y;
+                        if (px >= 0 && px < gridSize && py >= 0 && py < gridSize) {
+                            nextSel.add(py * gridSize + px);
+                        }
+                    }
+                    selectionRef.current = nextSel;
+                    setSelectionVersion(v => v + 1);
+                }
                 setFloatingSelection(null);
             };
             
@@ -2435,8 +2666,12 @@
                                 </button>
                                 
                                 <input type="file" ref={imageImportRef} className="hidden" multiple accept="image/*" onChange={handleImageImport} />
+                                <input type="file" ref={referenceImageImportRef} className="hidden" multiple accept="image/*" onChange={handleReferenceImageImport} />
                                 <button onClick={() => imageImportRef.current.click()} className="flex items-center gap-2 bg-space-800 hover:bg-space-700 text-gray-300 px-2 py-1 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-bold border border-space-600 transition-all">
                                     <Icons.Image /> <span className="hidden md:inline">Import</span>
+                                </button>
+                                <button onClick={() => referenceImageImportRef.current.click()} className="flex items-center gap-2 bg-space-800 hover:bg-space-700 text-gray-300 px-2 py-1 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-bold border border-space-600 transition-all" title="Import reference images">
+                                    <Icons.Image /> <span className="hidden md:inline">Ref</span>
                                 </button>
                                 <button onClick={exportSheet} className="flex items-center gap-2 bg-gradient-to-r from-tech-500 to-blue-600 hover:from-tech-400 hover:to-blue-500 text-white px-2 py-1 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all hover:scale-105">
                                     <Icons.Download /> <span className="hidden md:inline">Export</span>
@@ -2598,6 +2833,19 @@
                                                 <button onClick={() => setSelectMode('ellipse')} className={`py-1 rounded border ${selectMode === 'ellipse' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>ELLIPSE (2)</button>
                                                 <button onClick={() => setSelectMode('lasso')} className={`py-1 rounded border ${selectMode === 'lasso' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>LASSO (3)</button>
                                                 <button onClick={() => setSelectMode('smart')} className={`py-1 rounded border ${selectMode === 'smart' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>SMART (4)</button>
+                                            </div>
+
+                                            <div className="pt-2 border-t border-space-700">
+                                                <span className="text-[10px] text-gray-400 uppercase">Combine</span>
+                                                <div className="grid grid-cols-3 gap-1 text-[10px] mt-1">
+                                                    <button onClick={() => setSelectCombineMode('replace')} className={`py-1 rounded border ${selectCombineMode === 'replace' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>REPLACE</button>
+                                                    <button onClick={() => setSelectCombineMode('add')} className={`py-1 rounded border ${selectCombineMode === 'add' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>ADD</button>
+                                                    <button onClick={() => setSelectCombineMode('subtract')} className={`py-1 rounded border ${selectCombineMode === 'subtract' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>SUB</button>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1 mt-2 text-[10px]">
+                                                    <button onClick={clearSelection} className="py-1 rounded border bg-space-900 text-gray-300 border-space-600 hover:border-tech-500 hover:text-tech-400">DESELECT</button>
+                                                    <button onClick={invertSelection} className="py-1 rounded border bg-space-900 text-gray-300 border-space-600 hover:border-tech-500 hover:text-tech-400">INVERT</button>
+                                                </div>
                                             </div>
                                             {selectMode === 'smart' && (
                                                 <div className="pt-2 border-t border-space-700">
@@ -2767,7 +3015,7 @@
                             </div>
 
                             <div className={`flex border-b border-space-700 ${!isMobilePanelOpen ? 'hidden md:flex' : ''}`}>
-                                {['layers', 'palettes', 'animate', 'brushes'].map(tab => (
+                                {['layers', 'palettes', ...(referenceImages.length ? ['reference'] : []), 'animate', 'brushes'].map(tab => (
                                     <button key={tab} 
                                         onClick={() => handleTabClick(tab)}
                                         className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === tab ? 'tab-active' : 'tab-inactive'}`}>
@@ -2860,6 +3108,21 @@
                                                     <button onClick={() => setSelectMode('smart')} className={`py-1 rounded border ${selectMode === 'smart' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Smart (4)</button>
                                                 </div>
 
+                                                <div className="mt-2 pt-2 border-t border-space-700">
+                                                    <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Combine</div>
+                                                    <div className="flex gap-1 text-[10px]">
+                                                        <button onClick={() => setSelectCombineMode('replace')} className={`flex-1 py-1 rounded border ${selectCombineMode === 'replace' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Replace</button>
+                                                        <button onClick={() => setSelectCombineMode('add')} className={`flex-1 py-1 rounded border ${selectCombineMode === 'add' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Add</button>
+                                                        <button onClick={() => setSelectCombineMode('subtract')} className={`flex-1 py-1 rounded border ${selectCombineMode === 'subtract' ? 'bg-tech-500 text-white border-tech-400' : 'bg-space-900 text-gray-400 border-space-600'}`}>Subtract</button>
+                                                    </div>
+                                                    <p className="text-[9px] text-gray-500 mt-1 italic">Desktop: Shift=Add, Alt=Subtract</p>
+
+                                                    <div className="flex gap-1 mt-2 text-[10px]">
+                                                        <button onClick={clearSelection} className="flex-1 py-1 rounded border bg-space-900 text-gray-300 border-space-600 hover:border-tech-500 hover:text-tech-400">Deselect (Esc / Ctrl+D)</button>
+                                                        <button onClick={invertSelection} className="flex-1 py-1 rounded border bg-space-900 text-gray-300 border-space-600 hover:border-tech-500 hover:text-tech-400">Invert (Ctrl+Shift+I)</button>
+                                                    </div>
+                                                </div>
+
                                                 {selectMode === 'smart' && (
                                                     <div className="mt-2 pt-2 border-t border-space-700">
                                                         <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Smart Type</div>
@@ -2935,6 +3198,71 @@
                                                     </div>
                                                 </div>
                                             ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'reference' && (
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <span className="text-xs text-gray-400 uppercase font-bold">Reference Images</span>
+                                            <div className="flex gap-1">
+                                                <button onClick={() => referenceImageImportRef.current && referenceImageImportRef.current.click()} className="p-1 text-gray-400 hover:text-white" title="Add reference images"><Icons.Plus /></button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                                            {referenceImages.map(img => (
+                                                <button key={img.id}
+                                                    onClick={() => setActiveReferenceId(img.id)}
+                                                    className={`shrink-0 w-12 h-12 rounded-lg border overflow-hidden ${activeReferenceId === img.id ? 'border-tech-400 shadow-[0_0_10px_rgba(34,211,238,0.25)]' : 'border-space-700 hover:border-gray-500'}`}
+                                                    title={img.name || 'Reference'}>
+                                                    <img src={img.src} alt="ref" className="w-full h-full object-cover" />
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {(() => {
+                                            const active = referenceImages.find(r => r.id === activeReferenceId) || referenceImages[0];
+                                            if (!active) return null;
+                                            const scale = active.scale ?? 100;
+                                            return (
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="min-w-0">
+                                                            <div className="text-xs font-bold text-gray-200 truncate">{active.name || 'Reference'}</div>
+                                                            <div className="text-[10px] text-gray-500">Scale: {scale}%</div>
+                                                        </div>
+                                                        <button onClick={() => {
+                                                            setReferenceImages(prev => {
+                                                                const next = prev.filter(p => p.id !== active.id);
+                                                                // Update active selection.
+                                                                setActiveReferenceId(next.length ? next[0].id : null);
+                                                                return next;
+                                                            });
+                                                        }} className="p-1 text-red-400 hover:text-red-300" title="Remove"><Icons.Trash /></button>
+                                                    </div>
+
+                                                    <input type="range" min="10" max="400" value={scale}
+                                                        onChange={(e) => {
+                                                            const val = parseInt(e.target.value);
+                                                            setReferenceImages(prev => prev.map(r => r.id === active.id ? { ...r, scale: val } : r));
+                                                        }}
+                                                        className="w-full h-1 bg-space-900 rounded appearance-none cursor-pointer range-sm" />
+
+                                                    <div className="bg-space-900/50 rounded-lg border border-space-700 p-2">
+                                                        <div className="w-full max-h-[240px] overflow-auto">
+                                                            <div className="inline-block origin-top-left" style={{ transform: `scale(${scale / 100})` }}>
+                                                                <img src={active.src} alt="reference" className="max-w-none" style={{ imageRendering: 'pixelated' }} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        <div className="text-[10px] text-gray-500 leading-snug">
+                                            Reference images are not painted onto the canvas. They are shown here for tracing and visual guidance.
                                         </div>
                                     </div>
                                 )}
